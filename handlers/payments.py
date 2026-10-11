@@ -1,11 +1,11 @@
 from config.config import settings
 from payments.crypto_pay import CryptoPay
 from keyboards.inline import BuyCD, top_up_balance_crypto_kb, confirm_buy_item
-from database.models import Items, Payments, User, Orders
+from database.models import Items, Payments, User, Orders, Products
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from aiogram import Router, F, Bot
-from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramAPIError
@@ -315,6 +315,143 @@ async def buy_product(
         f"💵 <b>Цена продажи:</b> <code>{item.price:.2f} ₽</code>\n"
         f"📉 <b>Себестоимость:</b> <code>{item.purchase_price:.2f} ₽</code>\n"
         f"📈 <b>Прибыль:</b> <code>+{profit:.2f} ₽</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━"
+    )
+
+    refund_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Возврат средств", callback_data=f"refund_user:{new_order.id}")]
+        ]
+    )
+    await bot.send_message(
+        chat_id=ADMIN_IDS[0],
+        text=admin_text,
+        parse_mode="HTML",
+        reply_markup=refund_kb
+    )
+
+#массовая оплата товара
+@router_pay.callback_query(F.data.startswith("confirm_mass"))
+async def buy_mass_product(callback: CallbackQuery, user: User, bot: Bot, session: AsyncSession):
+    _, product_id_str, count_str = callback.data.split(":")
+
+    product_id = int(product_id_str)
+    count = int(count_str)
+
+    product = await session.get(Products, product_id)
+    
+    if not product:
+        return await callback.answer(
+            "❌ Ошибка: товар не найден или был удален."
+        )
+
+    items = (await session.scalars(
+        select(Items).where(
+        Items.product_id == product_id, Items.is_sold.is_(False)
+        ).limit(count))).all()
+
+    if len(items) < count:
+        return await callback.answer(
+        f"❌ Недостаточно товара! Доступно всего: {len(items)} шт.",
+        show_alert=True,
+    )
+
+    price = count * product.price
+    
+    if user.balance < price:
+        return await callback.answer(
+        f"❌ Недостаточно средств!\nНужно: {price:.2f} ₽\nБаланс: {user.balance:.2f} ₽",
+        show_alert=True,
+    )
+
+    user.balance -= price
+
+    purchase_price = Decimal("0.00")
+    data_lines = []
+    for item in items:
+        item.is_sold = True
+        purchase_price += item.purchase_price or Decimal("0.00")
+        data_lines.append(item.data)
+
+    all_data = "\n".join(data_lines)
+
+    new_order = Orders(
+        user_id=user.tg_id,
+        name=f"{product.name} (x{count})",
+        item_id=items[0].id,
+        price=price,
+        purchase_price=purchase_price,
+        item_data=all_data,
+    )
+
+    session.add(new_order)
+    await session.commit()
+
+    await callback.message.edit_reply_markup(reply_markup=None)
+
+    
+
+    data_text = (
+        f"✅ <b>Покупка успешно совершена!</b>\n\n"
+        f"📦 Товар: <b>{html.escape(product.name)}</b>\n"
+        f"🔢 Количество: <b>{count} шт.</b>\n"
+        f"💵 Списано: <code>{price:.2f} ₽</code>\n"
+        f"🪙 Остаток на балансе: <code>{user.balance:.2f} ₽</code>\n\n"
+        # f"🔑 <b>Данные товаров:</b>\n<pre>{safe_data}</pre>",
+    )
+
+    if count <= 5:
+        safe_data = html.escape(all_data)
+        await callback.message.answer(
+            f"{data_text}\n🔑 <b>Данные:</b>\n<pre>{safe_data}</pre>",
+            parse_mode="HTML",
+    )
+
+    else:
+        await callback.message.edit_text(
+            f"{data_text}\n\n📁 <i>Файл с вашими аккаунтами отправлен ниже 👇</i>",
+            parse_mode="HTML",
+        )
+
+        file_bytes = new_order.item_data.encode("utf-8")
+        document = (
+            BufferedInputFile(
+                file=file_bytes, filename=f"order_{new_order.id}.txt"
+            )
+        )
+        await callback.message.answer_document(
+            document=document,
+            caption=f"📄 Файл с товарами к заказу <b>#{new_order.id}</b>",
+            parse_mode="HTML",
+        )
+
+
+    await callback.answer()
+
+    profit = price - int(purchase_price)
+
+    username_str = (
+        f"@{callback.from_user.username}" 
+        if callback.from_user.username
+        else "отсутствует"
+    )
+
+    profit_str = ""
+    if profit >=0 :
+        profit_str = f"+{profit:.2f}"
+    else:
+        profit_str = f"{profit:.2f}"
+
+    admin_text = (
+        f"🛍 <b>Новая массовая покупка! (Заказ #{new_order.id})</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>Покупатель:</b> {html.escape(callback.from_user.full_name)} (<code>{user.tg_id}</code>)\n"
+        f"🔗 <b>Username:</b> {username_str}\n"
+        f"📦 <b>Лот:</b> {html.escape(product.name)} (ID: <code>{product.id}</code>)\n"
+        f"🔢 <b>Количество:</b> <code>{count} шт.</code>\n"
+        f"💵 <b>Сумма продажи:</b> <code>{price:.2f} ₽</code>\n"
+        f"📉 <b>Себестоимость:</b> <code>{purchase_price:.2f} ₽</code>\n"
+        f"📈 <b>Прибыль:</b> <code>+{profit_str} ₽</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━━"
     )
 

@@ -171,14 +171,20 @@ async def history_purchases_handler(callback: CallbackQuery, session: AsyncSessi
     
 
     for count, q in enumerate(query, start=1):
-        title = escape(q.name)
-        data = escape(q.item_data)
+        title = escape(q.name or "Товар ")
         price = int(q.price)
+
+        raw_data = q.item_data or ""
+        trimmed_data = raw_data[:200]
+        safe_data = escape(trimmed_data)
+
+        if len(raw_data) > 200:
+            safe_data += "..."
 
         all_purchases.append(
             f"<b>{count}. {title}</b> — <code>{price} ₽</code>\n"
             f"📦 <b>Данные:</b>\n"
-            f"<code>{data}</code>"
+            f"<code>{safe_data}</code>"
         )
 
     text = (

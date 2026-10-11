@@ -66,7 +66,7 @@ def sub_categories_kb(category_id: int, sub_categories: list, is_admin: bool) ->
         kb.button(text="❌ Удалить категорию", callback_data=f"del_cat:{category_id}")
         kb.button(text="📦 Создать подкатегорию", callback_data=f"create_sub_cat:{category_id}")
 
-    kb.button(text="◀️ НАЗАД", callback_data="back_to_categories")
+    kb.button(text="🔙 НАЗАД", callback_data="back_to_categories")
 
     kb.adjust(1)
     return kb.as_markup()
@@ -75,7 +75,7 @@ def item_card_keyboard(item_id: int, category_id: int, is_admin: bool) -> Inline
     kb = InlineKeyboardBuilder()
 
     kb.button(text="💳 Купить", callback_data=f"buy_item:{item_id}")
-    kb.button(text="◀️ Назад к списку",callback_data=CategoryCD(category_id=category_id).pack())
+    kb.button(text="🔙 Назад к списку",callback_data=CategoryCD(category_id=category_id).pack())
 
 
     if is_admin:
@@ -164,7 +164,7 @@ def items_pagination_keyboards(page: int, total_page: int, category_id: int, ite
 
     kb.row(
         InlineKeyboardButton(
-            text="◀️ МЕНЮ",
+            text="🔙 МЕНЮ",
             callback_data="back_to_categories"
         )
     )
@@ -230,3 +230,51 @@ def sub_channel_kb():
 
     kb.adjust(1)
     return kb.as_markup()
+
+
+#клавиатура для массовой покупки (кнопки 1шт | 5 шт | ввести свое кол-во)
+
+def mass_loading_kb(stock: int, mass_product_id) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+
+    buttons_count = 0
+
+    if stock > 0:
+        kb.button(text="1", callback_data=f"buy_mass:{mass_product_id}:1")
+        buttons_count += 1
+    if stock >= 5:
+        kb.button(text="5", callback_data=f"buy_mass:{mass_product_id}:5")
+        buttons_count += 1
+    if stock >= 10:
+        kb.button(text="10", callback_data=f"buy_mass:{mass_product_id}:10")
+        buttons_count += 1
+
+    if stock > 0:
+        kb.button(
+            text="Другое количество",
+            callback_data=f"enter_mass:{mass_product_id}",
+        )
+
+    kb.button(text="🔙 НАЗАД", callback_data="back_to_categories")
+
+    if stock > 0:
+        kb.adjust(buttons_count,1,1)
+    else:
+        kb.adjust(1)
+
+    return kb.as_markup()
+
+#подтверждение массовой покупки
+def confirm_mass_buy_kb(product_id: int, count: int) -> InlineKeyboardMarkup:
+  kb = InlineKeyboardBuilder()
+
+  kb.button(
+      text=f"✅ Да, купить ({count} шт.)",
+      callback_data=f"confirm_mass:{product_id}:{count}",
+  )
+  kb.button(text="❌ Отмена", callback_data="back_to_categories")
+
+
+  kb.adjust(1)
+
+  return kb.as_markup()

@@ -48,14 +48,31 @@ class SubCategories(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
 
 
+class Products(Base):
+  __tablename__ = "products"
+
+  id: Mapped[all_id]
+  subcategory_id: Mapped[int] = mapped_column(
+      ForeignKey("sub_categories.id", ondelete="CASCADE")
+  )
+  name: Mapped[str]
+  description: Mapped[str] = mapped_column(Text)
+  price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+  created_at: Mapped[time_now]
+
+
+
 class Items(Base):
     __tablename__ = 'items'
 
     id: Mapped[all_id]
     category_id: Mapped[int] = mapped_column(ForeignKey('sub_categories.id', ondelete="CASCADE"))
-    title: Mapped[str]
-    description: Mapped[str] = mapped_column(Text)
-    price: Mapped[Decimal] = mapped_column(Numeric(10,2))
+    product_id: Mapped[int | None] = mapped_column(
+      ForeignKey("products.id", ondelete="CASCADE"), nullable=True, default=None
+    )
+    title: Mapped[str | None] = mapped_column(nullable=True, default=None)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    price: Mapped[Decimal | None] = mapped_column(Numeric(10,2), nullable=True, default=None)
     purchase_price: Mapped[Decimal] = mapped_column(Numeric(10,2), nullable=False)
     data: Mapped[str] = mapped_column(Text)
     is_sold: Mapped[bool] = mapped_column(default=False)

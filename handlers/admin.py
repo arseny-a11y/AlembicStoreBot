@@ -8,7 +8,7 @@ from aiogram.types.error_event import ErrorEvent
 from keyboards.reply import admin_menu 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select,func, delete, update
-from database.models import Categories, Items, User, Orders, PromoCode, PromoUsage, SubCategories
+from database.models import Categories, Items, User, Orders, PromoCode, PromoUsage, SubCategories, Products
 from keyboards.inline import category_admin, keyboard_categories, cancel_mailing_kb, generation_code_kb, sub_category_admin
 from database.queries import CreatedCategories, check_promocode
 from decimal import Decimal, InvalidOperation
@@ -80,6 +80,17 @@ class AdminBalanceState(StatesGroup):
     waiting_for_identifier = State()
     waiting_for_amount = State()
 
+#FSM состояние для массовой загрузки товаров
+class MassLoadingState(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_desc = State()
+    waiting_for_price = State()
+    waiting_for_file = State()
+
+#FSM состояние для пополнения массового товара
+class RestockMassState(StatesGroup):
+    waiting_for_file = State()
+
 @admin_router.message(or_f(Command("admin"), F.text.in_(["🤖 Админка","админ"])))
 async def admin_command(message: Message):
     await message.answer('Панель администратора открыта🫡',reply_markup=admin_menu())
@@ -88,7 +99,7 @@ async def admin_command(message: Message):
 #--------------------------------------отмена загрузки в категорию--------------------------------------
 @admin_router.callback_query(
         F.data == "admin_cancel_upload",
-        StateFilter(AdminUploadItems)
+        StateFilter(*AdminUploadItems, *RestockMassState)
         )
 async def cancel_upload(callback: CallbackQuery, state: FSMContext):
    await state.clear()
@@ -117,6 +128,7 @@ async def category_selected(callback: CallbackQuery, state: FSMContext, session:
     await state.set_state(AdminUploadItems.waiting_for_sub_category)
 
     sub_category = (await session.scalars(select(SubCategories).where(SubCategories.category_id == category_id))).all()
+
     if not sub_category:
         await state.clear()
         return await callback.message.edit_text("⚠️ В этой категории нет подкатегорий. Создайте подкатегорию перед загрузкой.")
@@ -139,7 +151,13 @@ async def sub_category_selected(callback: CallbackQuery, state: FSMContext, sess
 
     cancel_kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="admin_cancel_upload")]
+            [
+            InlineKeyboardButton(text="📦 Массовая загрузка", callback_data=f"mass_loading:{sub_category_id}"),
+
+            InlineKeyboardButton(text="📥 Пополнить товар", callback_data=f"top_up_mass_loading:{sub_category_id}"),
+
+            InlineKeyboardButton(text="❌ Отмена", callback_data="admin_cancel_upload")
+            ]
         ]
     )
 
@@ -155,6 +173,8 @@ async def sub_category_selected(callback: CallbackQuery, state: FSMContext, sess
     )
     await callback.answer()
 
+
+#--------------------------------------парсинг и загрузка товаров--------------------------------------
 @admin_router.message(AdminUploadItems.waiting_for_file, F.document)
 async def upload_items_file(message: Message, state: FSMContext, session: AsyncSession, bot: Bot):
     if not message.document.file_name.endswith(".txt"):
@@ -211,7 +231,285 @@ async def upload_items_file(message: Message, state: FSMContext, session: AsyncS
     await message.answer(f"✅ Успешно добавлено товаров: <b>{len(products)}</b> шт.", parse_mode="HTML")
 
 
+#--------------------------------------массовая загрузка в 1 товар--------------------------------------
+@admin_router.callback_query(F.data == "cancel_mass_loading", StateFilter(*MassLoadingState))
+async def cancel_mass_loading_handler(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("🚫 Загрузка отменена")
+    await callback.answer()
 
+
+@admin_router.callback_query(F.data.startswith("mass_loading"))
+async def mass_loading_name(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+
+    sub_cat_id = int(callback.data.split(":")[-1])
+
+    await state.set_state(MassLoadingState.waiting_for_name)
+
+    await state.update_data(sub_cat_id=sub_cat_id)
+
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_mass_loading")]
+        ]
+    )
+
+    await callback.message.answer("💬 Введите название товара: ", reply_markup=cancel_kb)       
+
+@admin_router.message(MassLoadingState.waiting_for_name)
+async def mass_loading_desc(message: Message, state: FSMContext):
+    await state.update_data(name=message.text)
+
+    await state.set_state(MassLoadingState.waiting_for_desc)
+
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_mass_loading")]
+        ]
+    )
+
+    await message.answer("💬 Введите описание товара: ", reply_markup=cancel_kb)
+
+@admin_router.message(MassLoadingState.waiting_for_desc)
+async def mass_loading_price(message: Message, state: FSMContext):
+    await state.update_data(desc=message.text)
+
+    await state.set_state(MassLoadingState.waiting_for_price)
+
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_mass_loading")]
+        ]
+    )
+
+    await message.answer("💬 Введите стоимость товара: ", reply_markup=cancel_kb)
+
+@admin_router.message(MassLoadingState.waiting_for_price)
+async def mass_loading_file(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+
+    # 1. Проверяем валидность целого числа и длину
+    if not text.isdigit() or len(text) > 6:
+        return await message.answer(
+            "❌ Стоимость товара должна быть целым положительным числом (например: <code>150</code>)",
+            parse_mode="HTML",
+        )
+
+    clean_price = Decimal(text)
+    if clean_price <= 0:
+        return await message.answer("❌ Стоимость товара должна быть больше 0.")
+
+    await state.update_data(price=clean_price)
+    await state.set_state(MassLoadingState.waiting_for_file)
+
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_mass_loading")]
+        ]
+    )
+
+    await message.answer(
+        "Отправьте <b>.txt</b> файл со списком товаров документом.\n\n"
+        "Формат каждой строки:\n"
+        "<code>Данные_товара | закупочная цена</code>\n\n"
+        "<i>Пример:</i>\n"
+        "<code>login:pass:mail | purchase price</code>",
+        reply_markup=cancel_kb,
+        parse_mode="HTML"
+    )
+
+
+@admin_router.message(MassLoadingState.waiting_for_file, F.document)
+async def mass_loading_products(message: Message, state: FSMContext, session: AsyncSession, bot: Bot):
+    if not message.document.file_name.endswith(".txt"):
+        return await message.answer("❌ Отправьте файл с расширением (.txt)")
+
+    data_fsm = await state.get_data()
+    document = message.document
+    file_in_io = io.BytesIO()
+
+    await bot.download(document, destination=file_in_io)
+
+    file_in_io.seek(0)
+
+    try:
+        content: str = file_in_io.read().decode("utf-8")
+    except UnicodeDecodeError:
+        return await message.answer("❌ Ошибка: кодировка файла должна быть UTF-8.")
+
+
+    products = []
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+
+    if not lines:
+        return await message.answer("❌ Ошибка: файл пуст")
+
+    for num, line in enumerate(lines, start=1):
+        data_account = [d.strip() for d in line.split("|")]
+
+        if len(data_account) != 2:
+            return await message.answer(f"❌ Ошибка: в строке {num}: ожидалось 2 поля через '|'")
+
+        data, purchase_price = data_account
+
+        try:
+            clean_purchase_price = Decimal(purchase_price.replace(",", "."))
+        except InvalidOperation:
+            return await message.answer(f"❌ Ошибка: Закупочная цена не является числом в строке {num}")
+
+        products.append((data, clean_purchase_price))
+
+    new_product = Products(
+        subcategory_id=data_fsm.get("sub_cat_id"),
+        name=data_fsm.get("name"),
+        description=data_fsm.get("desc"),
+        price=data_fsm.get("price")
+    )
+
+    session.add(new_product)
+
+    # Получаем ID созданного товара без закрытия транзакции
+    await session.flush()
+
+    items_to_add = [
+        Items(
+            category_id=data_fsm.get("sub_cat_id"),
+            product_id=new_product.id,
+            data=acc_data,
+            purchase_price=p_price
+        )
+        for acc_data, p_price in products
+    ]
+
+    session.add_all(items_to_add)
+
+    await session.commit()
+    await state.clear()
+
+    await message.answer(
+      f"✅ <b>Лот успешно создан!</b>\n\n"
+      f"📦 <b>Название:</b> {new_product.name}\n"
+      f"💵 <b>Цена за шт:</b> {new_product.price} ₽\n"
+      f"📊 <b>Загружено в лот:</b> {len(items_to_add)} шт.",
+      parse_mode="HTML",
+  )
+
+#пополнение существующего массового товара
+@admin_router.callback_query(F.data.startswith("top_up_mass_loading"))
+async def top_up_mass_product(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    await callback.answer()
+
+    sub_category_id = int(callback.data.split(":")[-1])
+
+    # Находим существующий лот в этой категории
+    product = await session.scalar(
+      select(Products).where(Products.subcategory_id == sub_category_id)
+    )
+
+    if not product:
+        return await callback.message.answer(
+            "❌ В этой подкатегории ещё нет созданного товара.\n"
+            "Сначала создайте его через «Массовая загрузка»."
+        )
+
+    count_products = await session.scalar(
+        select(func.count(Items.id)).where(
+            Items.product_id == product.id,
+            Items.is_sold.is_(False)
+        )
+    ) or 0
+
+    await state.update_data(product_id=product.id, sub_category_id=sub_category_id)
+
+    await state.set_state(RestockMassState.waiting_for_file)
+
+    cancel_kb = InlineKeyboardMarkup(
+      inline_keyboard=[[
+          InlineKeyboardButton(
+              text="❌ Отмена", callback_data="admin_cancel_upload"
+          )
+      ]]
+    )
+    await callback.message.answer(
+      f"📥 <b>Пополнение лота:</b> {product.name}\n"
+      f"📊 <b>Текущий остаток:</b> {count_products} шт.\n\n"
+      f"Отправьте <b>.txt</b> файл с новыми строками документом.\n\n"
+      f"<i>Формат строк:</i>\n"
+      f"<code>данные_аккаунта | себестоимость</code>",
+      reply_markup=cancel_kb,
+      parse_mode="HTML",
+  )
+
+#ловим файл для пополнения товара
+@admin_router.message(RestockMassState.waiting_for_file, F.document)
+async def top_up_product_file(message: Message, state: FSMContext, session: AsyncSession, bot: Bot):
+
+    if not message.document.file_name.endswith(".txt"):
+        return await message.answer("❌ Отправьте файл с расширением (.txt)")
+
+    data_fsm = await state.get_data()
+    product_id = data_fsm.get("product_id")
+    sub_category_id = data_fsm.get("sub_category_id")
+
+    document = message.document
+
+    file_in_io = io.BytesIO()
+
+    await bot.download(document, destination=file_in_io)
+
+    file_in_io.seek(0)
+
+    try:
+        content: str = file_in_io.read().decode("utf-8")
+    except UnicodeDecodeError:
+        return await message.answer("❌ Ошибка: кодировка файла должна быть UTF-8.")
+
+
+    products = []
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+
+    if not lines:
+        return await message.answer("❌ Ошибка: файл пуст")
+
+    for num, line in enumerate(lines, start=1):
+        data_account = [d.strip() for d in line.split("|")]
+
+        if len(data_account) != 2:
+            return await message.answer(f"❌ Ошибка: в строке {num}: ожидалось 2 поля через '|'")
+
+        data, purchase_price = data_account
+
+        try:
+            clean_purchase_price = Decimal(purchase_price.replace(",", "."))
+        except InvalidOperation:
+            return await message.answer(f"❌ Ошибка: Закупочная цена не является числом в строке {num}")
+
+        products.append((data, clean_purchase_price))
+
+    items_to_add = [
+        Items(
+            category_id=data_fsm.get("sub_category_id"),
+            product_id=product_id,
+            data=acc_data,
+            purchase_price=p_price
+        )
+        for acc_data, p_price in products
+    ]
+    
+    session.add_all(items_to_add)
+    
+    await session.commit()
+    await state.clear()
+    
+    product = await session.get(Products, product_id)
+
+    await message.answer(
+      f"✅ <b>Лот успешно пополнен!</b>\n\n"
+      f"📦 <b>Товар:</b> {product.name}\n"
+      f"➕ <b>Добавлено строк:</b> {len(items_to_add)} шт.",
+      parse_mode="HTML",
+    )
 #--------------------------------------Статистика продаж--------------------------------------
 @admin_router.message(F.text == "📊 Статистика")
 async def sales_stats(message: Message, session: AsyncSession):
@@ -536,7 +834,7 @@ async def edit_price_product_fsm(message: Message, state: FSMContext, session: A
 @admin_router.callback_query(
     F.data.in_(["cancel_edit_data", "cancel_edit_price"]),
     StateFilter(
-        EditProductState.waiting_for_data, EditProductState.waiting_for_price
+        *EditProductState
     ),
 )
 async def cancel_edit_product_process(
@@ -631,7 +929,7 @@ async def generation_promo_code(session: AsyncSession, length: int = 8):
 #--------------------------------------отмена создания промокода--------------------------------------
 @admin_router.callback_query(
         F.data == "admin_cancel_promocode",
-        StateFilter(PromoCodeState)
+        StateFilter(*PromoCodeState)
         )
 async def create_cancel_promocode(callback: CallbackQuery, state: FSMContext):
    await state.clear()
@@ -903,7 +1201,7 @@ async def amount_user_fsm(message: Message, state: FSMContext, session: AsyncSes
 
 
 #--------------------------------------отмена управления балансом--------------------------------------
-@admin_router.callback_query(F.data == "managment_balance", StateFilter(AdminBalanceState))
+@admin_router.callback_query(F.data == "managment_balance", StateFilter(*AdminBalanceState))
 async def cancel_managment_balance(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text("🚫 Управление балансом отменено")
