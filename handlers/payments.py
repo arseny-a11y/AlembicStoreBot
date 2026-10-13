@@ -451,7 +451,7 @@ async def buy_mass_product(callback: CallbackQuery, user: User, bot: Bot, sessio
         f"🔢 <b>Количество:</b> <code>{count} шт.</code>\n"
         f"💵 <b>Сумма продажи:</b> <code>{price:.2f} ₽</code>\n"
         f"📉 <b>Себестоимость:</b> <code>{purchase_price:.2f} ₽</code>\n"
-        f"📈 <b>Прибыль:</b> <code>+{profit_str} ₽</code>\n"
+        f"📈 <b>Прибыль:</b> <code>{profit_str} ₽</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━━"
     )
 

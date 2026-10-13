@@ -234,7 +234,7 @@ def sub_channel_kb():
 
 #клавиатура для массовой покупки (кнопки 1шт | 5 шт | ввести свое кол-во)
 
-def mass_loading_kb(stock: int, mass_product_id) -> InlineKeyboardMarkup:
+def mass_loading_kb(stock: int, mass_product_id, sub_category_id: int, is_admin: bool) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
 
     buttons_count = 0
@@ -256,7 +256,9 @@ def mass_loading_kb(stock: int, mass_product_id) -> InlineKeyboardMarkup:
         )
 
     kb.button(text="🔙 НАЗАД", callback_data="back_to_categories")
-
+    if is_admin:
+        kb.button(text="🗑 Удалить лот", callback_data=f"delete_mass_lot:{sub_category_id}")
+        kb.button(text="✏️ Редактировать стоимость", callback_data=f"mass_edit_price:{mass_product_id}")
     if stock > 0:
         kb.adjust(buttons_count,1,1)
     else:

@@ -7,7 +7,7 @@ from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter, Teleg
 from aiogram.types.error_event import ErrorEvent
 from keyboards.reply import admin_menu 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select,func, delete, update
+from sqlalchemy import select,func, delete, update, or_
 from database.models import Categories, Items, User, Orders, PromoCode, PromoUsage, SubCategories, Products
 from keyboards.inline import category_admin, keyboard_categories, cancel_mailing_kb, generation_code_kb, sub_category_admin
 from database.queries import CreatedCategories, check_promocode
@@ -91,6 +91,10 @@ class MassLoadingState(StatesGroup):
 class RestockMassState(StatesGroup):
     waiting_for_file = State()
 
+#FSM состояние для редактирования цены массового товара
+class MassEditPriceState(StatesGroup):
+    waiting_for_price = State()
+
 @admin_router.message(or_f(Command("admin"), F.text.in_(["🤖 Админка","админ"])))
 async def admin_command(message: Message):
     await message.answer('Панель администратора открыта🫡',reply_markup=admin_menu())
@@ -153,9 +157,7 @@ async def sub_category_selected(callback: CallbackQuery, state: FSMContext, sess
         inline_keyboard=[
             [
             InlineKeyboardButton(text="📦 Массовая загрузка", callback_data=f"mass_loading:{sub_category_id}"),
-
             InlineKeyboardButton(text="📥 Пополнить товар", callback_data=f"top_up_mass_loading:{sub_category_id}"),
-
             InlineKeyboardButton(text="❌ Отмена", callback_data="admin_cancel_upload")
             ]
         ]
@@ -241,6 +243,7 @@ async def cancel_mass_loading_handler(callback: CallbackQuery, state: FSMContext
 
 @admin_router.callback_query(F.data.startswith("mass_loading"))
 async def mass_loading_name(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
     await callback.answer()
 
     sub_cat_id = int(callback.data.split(":")[-1])
@@ -295,12 +298,12 @@ async def mass_loading_file(message: Message, state: FSMContext):
             "❌ Стоимость товара должна быть целым положительным числом (например: <code>150</code>)",
             parse_mode="HTML",
         )
-
+    
     clean_price = Decimal(text)
     if clean_price <= 0:
         return await message.answer("❌ Стоимость товара должна быть больше 0.")
 
-    await state.update_data(price=clean_price)
+    await state.update_data(price=str(clean_price))
     await state.set_state(MassLoadingState.waiting_for_file)
 
     cancel_kb = InlineKeyboardMarkup(
@@ -398,6 +401,7 @@ async def mass_loading_products(message: Message, state: FSMContext, session: As
 #пополнение существующего массового товара
 @admin_router.callback_query(F.data.startswith("top_up_mass_loading"))
 async def top_up_mass_product(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    await state.clear()
     await callback.answer()
 
     sub_category_id = int(callback.data.split(":")[-1])
@@ -510,6 +514,163 @@ async def top_up_product_file(message: Message, state: FSMContext, session: Asyn
       f"➕ <b>Добавлено строк:</b> {len(items_to_add)} шт.",
       parse_mode="HTML",
     )
+
+#удаление массового лота
+@admin_router.callback_query(F.data.startswith("delete_mass_lot"))
+async def delete_mass_lot_handler(callback: CallbackQuery, session: AsyncSession):
+    sub_category_id = int(callback.data.split(":")[-1])
+
+    product = await session.scalar(
+        select(Products).where(
+            Products.subcategory_id == sub_category_id
+        )
+    )
+
+    if not product:
+        return await callback.message.edit_text(
+        " В этой подкатегории нет активного лота для удаления.")
+    
+    count_product = await session.scalar(
+        select(func.count(Items.id)).where(
+            Items.product_id == product.id,
+            Items.is_sold.is_(False)
+        )
+    )
+
+    confirm_kb = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [
+              InlineKeyboardButton(
+                  text="🔥 Да, удалить",
+                  callback_data=f"confirm_delete_mass_lot:{product.id}",
+              )
+          ],
+          [
+              InlineKeyboardButton(
+                  text="❌ Отмена", callback_data="cancel_del_mass"
+              )
+          ],
+      ]
+    )
+
+    await callback.message.edit_text(
+      f"⚠️ <b>Вы действительно хотите удалить этот лот?</b>\n\n"
+      f"📦 <b>Товар:</b> {product.name}\n"
+      f"📊 <b>Остаток на складе:</b> {count_product} шт.\n\n"
+      f"<i>Все нераспроданные позиции ({count_product} шт.) будут безвозвратно удалены из базы!</i>",
+      reply_markup=confirm_kb,
+      parse_mode="HTML",
+  )
+
+#подтверждение удаления массового лота
+@admin_router.callback_query(F.data.startswith("confirm_delete_mass_lot"))
+async def conf_del_mass_lot(callback: CallbackQuery, session: AsyncSession):
+    await callback.answer()
+
+    product_id = int(callback.data.split(":")[-1])
+
+    product = await session.get(Products, product_id)
+
+    if not product:
+        return await callback.message.edit_text("❌ Товар уже был удален.")
+
+    product_name = product.name
+
+    await session.execute(
+        delete(Items).where(
+            Items.product_id == product_id,
+            or_(Items.is_sold.is_(False), Items.is_sold.is_(None))
+        )
+    )
+
+
+    sold_items = (await session.scalars(
+        select(Items).where(
+            Items.product_id == product.id,
+            Items.is_sold.is_(True)
+        )
+    )).all()
+
+    await session.execute(
+      update(Items)
+      .where(Items.product_id == product_id, Items.is_sold.is_(True))
+      .values(product_id=None)
+    )
+
+    await session.delete(product)
+
+    await session.commit()
+
+    await callback.message.edit_text(
+      f"🗑 <b>Лот «{product_name}» успешно удален из каталога!</b>\n\n"
+      f"Витрина очищена, остатки удалены.", parse_mode="HTML")
+
+#отмена удаления массового лота
+@admin_router.callback_query(F.data == "cancel_del_mass")
+async def cancel_del_mass_handler(callback: CallbackQuery, state: FSMContext):
+   await state.clear()
+   await callback.message.edit_text("🚫 Удаление отменено")
+   await callback.answer()
+
+
+#редактирование цены массового товара
+@admin_router.callback_query(F.data.startswith("mass_edit_price"))
+async def edit_price_mass_product_fsm(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+
+    product_id = int(callback.data.split(":")[-1])
+
+    await state.set_state(MassEditPriceState.waiting_for_price)
+
+    await state.update_data(product_id=product_id)
+
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_edit_product")]
+        ]
+    )
+
+    await callback.message.answer(
+        "💰 Введите новую цену товара в рублях (например, <code>150</code>)",
+        parse_mode="HTML",
+        reply_markup=cancel_kb
+    )
+
+@admin_router.message(MassEditPriceState.waiting_for_price)
+async def edit_price_mass_product(message: Message, state: FSMContext, session: AsyncSession):
+    text = (message.text or "").strip()
+
+    try:
+        clean_price = int(text)
+        if clean_price <= 0 or clean_price > 999_999:
+            raise ValueError
+    except ValueError:
+        return await message.answer(
+            "❌ Стоимость товара должна быть целым положительным числом от 1 до 999 999 (например: <code>150</code>).",
+            parse_mode="HTML",
+        )
+
+    new_price = Decimal(clean_price)
+    
+    data_fsm = await state.get_data()
+    product_id = data_fsm.get("product_id")
+    new_price = Decimal(text)
+    
+    product = await session.get(Products, product_id)
+
+    if not product:
+        await state.clear()
+        return await message.answer("❌ Товар не найден в базе данных.")
+    
+    product.price = new_price
+
+    await session.commit()
+    await state.clear()
+
+    return await message.answer(
+        f"✅ Цена товара <b>{product.name}</b> успешно обновлена на <code>{new_price:.2f} ₽</code>!",
+        parse_mode="HTML"
+    )
 #--------------------------------------Статистика продаж--------------------------------------
 @admin_router.message(F.text == "📊 Статистика")
 async def sales_stats(message: Message, session: AsyncSession):
@@ -617,7 +778,7 @@ async def delete_item(callback: CallbackQuery, session: AsyncSession):
 
     del_item = (
         delete(Items).
-        where(Items.id == item_id,Items.is_sold.is_(False))
+        where(Items.id == item_id, Items.is_sold.is_(False))
     )
     result = await session.execute(del_item)
     await session.commit()
@@ -832,9 +993,10 @@ async def edit_price_product_fsm(message: Message, state: FSMContext, session: A
 
 # --------------------------------------Один хэндлер на обе отмены редактирования товаров--------------------------------------
 @admin_router.callback_query(
-    F.data.in_(["cancel_edit_data", "cancel_edit_price"]),
+    F.data.in_(["cancel_edit_data", "cancel_edit_price","cancel_edit_product"]),
     StateFilter(
-        *EditProductState
+        *EditProductState,
+        *MassEditPriceState
     ),
 )
 async def cancel_edit_product_process(
@@ -1206,3 +1368,4 @@ async def cancel_managment_balance(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text("🚫 Управление балансом отменено")
     await callback.answer()
+

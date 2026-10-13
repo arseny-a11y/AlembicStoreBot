@@ -93,7 +93,7 @@ async def sub_categories(callback: CallbackQuery, callback_data: SubCategoryCD, 
 
         return await callback.message.edit_text(
             text=text,
-            reply_markup=mass_loading_kb(stock, mass_product.id),
+            reply_markup=mass_loading_kb(stock, mass_product.id, sub_category_id, is_admin),
             parse_mode="HTML"
         )
 
@@ -243,10 +243,9 @@ async def enter_mass_confirm(message: Message, user: User, bot: Bot, state: FSMC
 
     if user.balance < price:
         return await message.answer(
-            f"❌ <b>Недостаточно средств!</b>\n"
+            f"❌Недостаточно средств!\n"
             f"Нужно: {price:.2f} ₽\n"
-            f"На балансе: {user.balance:.2f} ₽",
-            parse_mode="HTML",
+            f"На балансе: {user.balance:.2f} ₽"
         )
 
     text_confirm = (
