@@ -28,7 +28,7 @@ class User(Base):
     full_name: Mapped[str]
     registered_at: Mapped[time_now]
     balance: Mapped[Decimal] = mapped_column(Numeric(10,2),default=Decimal('0.00'))
-
+    is_banned: Mapped[bool] = mapped_column(default=False, server_default="0")
 
 
 class Categories(Base):

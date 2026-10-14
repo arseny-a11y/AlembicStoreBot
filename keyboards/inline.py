@@ -286,7 +286,7 @@ def orders_user_kb() -> InlineKeyboardMarkup:
 
     kb.button(text="📦 Найти заказ по ID", callback_data="search_by_order_id")
     kb.button(text="👤 Найти пользователя (ID / @username)", callback_data="search_by_user_orders")
-    kb.button(text="❌ Отмена", callback_data="cancel_search_orders")
+    kb.button(text="❌ Отмена", callback_data="cancel_search_order")
 
     kb.adjust(2,1)
 

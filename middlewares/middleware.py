@@ -1,9 +1,11 @@
 from typing import Any, Callable, Awaitable
-from aiogram.types import TelegramObject, User, CallbackQuery, Message
+from aiogram.types import TelegramObject, CallbackQuery, Message
 from aiogram import BaseMiddleware, Bot
 from aiogram.exceptions import TelegramAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+from sqlalchemy import select
 from database.queries import UserQueries
+from database.models import User
 from cachetools import TTLCache
 from config.config import settings
 from keyboards.inline import sub_channel_kb
@@ -22,6 +24,21 @@ class DbSessionMiddleware(BaseMiddleware):
         async with self.session_pool() as session:
             #кладем сессию в словарь
             data['session'] = session
+
+            #проверяем находится ли пользователь в бане
+            user_event = data.get("event_from_user")
+
+            if user_event:
+                is_banned = await session.scalar(select(User.is_banned).where(User.tg_id == user_event.id))
+
+                if is_banned:
+                    if isinstance(event, CallbackQuery):
+                        await event.answer("⛔ Вы заблокированы в боте.", show_alert=True)
+                    elif isinstance(event, Message):
+                        await event.answer("⛔ Вы заблокированы в боте.")
+
+                    return
+                    
             #передаем данные на handler
             return await handler(event,data)
 

@@ -2,7 +2,7 @@ from aiogram.filters import BaseFilter, Command, StateFilter, or_f
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, TelegramObject, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.state import State, StatesGroup, default_state
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter, TelegramAPIError
 from aiogram.types.error_event import ErrorEvent
 from keyboards.reply import admin_menu 
@@ -100,6 +100,23 @@ class OrdersUserState(StatesGroup):
     waiting_for_order_id = State()
     waiting_for_identifier = State()
 
+#FSM состояние для бана пользователя
+class BannedUserState(StatesGroup):
+    waiting_for_identifier = State()
+
+#отмена всех FSM состояний
+@admin_router.message(
+    Command("cancel"), ~StateFilter(default_state)
+)
+async def cancel_text_handler(message: Message, state: FSMContext):
+  current_state = await state.get_state()
+  if current_state is None:
+    return
+
+  await state.clear()
+  await message.answer(
+      "🚫 Текущее действие отменено.",
+  )
 
 @admin_router.message(or_f(Command("admin"), F.text.in_(["🤖 Админка","админ"])))
 async def admin_command(message: Message):
@@ -124,7 +141,7 @@ async def upload_items(message: Message, session: AsyncSession, state: FSMContex
         message.from_user.id in ADMIN_IDS
     )
     if not categories:
-        return await message.answer("Создайте хоть одну категорию!",reply_markup=keyboard_categories(categories,is_admin))
+        return await message.answer("Создайте хоть одну категорию!",reply_markup=keyboard_categories(categories, is_admin))
 
     
     await state.set_state(AdminUploadItems.waiting_for_category)
@@ -1326,7 +1343,7 @@ async def amount_user_fsm(message: Message, state: FSMContext, session: AsyncSes
     if identifier.startswith("@"):
         username = identifier[1:]
 
-        user = await session.scalar(select(User).where(User.username == username))
+        user = await session.scalar(select(User).where(func.lower(User.username) == username))
 
     else:
         tg_id = identifier
@@ -1400,7 +1417,7 @@ async def cancel_managment_balance(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 #--------------------------------------поиск оредоров пользователей--------------------------------------
-@admin_router.message(F.text == "🔍 Найти заказ по ID")
+@admin_router.message(F.text == "🔍 Поиск заказов")
 async def show_orders_user(message: Message):
     await message.answer(
       "🔍 <b>Выберите тип поиска:</b>\n\n"
@@ -1612,5 +1629,90 @@ async def search_orders_user_fsm(message: Message, state: FSMContext, session: A
         text=text + user_info,
         parse_mode="HTML"
     )
+#отмена поиска заказов
+@admin_router.callback_query(F.data == "cancel_search_order", StateFilter("*"))
+async def cancel_upload(callback: CallbackQuery, state: FSMContext):
+   await state.clear()
+   await callback.message.edit_text("🚫 Поиск отменен")
+   await callback.answer()
+
+#--------------------------------------блокировка пользователя в боте--------------------------------------
+@admin_router.message(F.text == "⭕ Бан пользователя")
+async def banned_user(message: Message, state: FSMContext):
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_banned_user")]
+        ]
+    )
+
+    await state.set_state(BannedUserState.waiting_for_identifier)
+    await message.answer("🔎 Введите (ID / @username) пользователя ( обязательно с @ ) и действие (ban / unban): ",reply_markup=cancel_kb)
+
+@admin_router.message(BannedUserState.waiting_for_identifier)
+async def banned_user_fsm(message: Message, state: FSMContext, session: AsyncSession):
+    text = (message.text or "").strip()
+
+    if not text:
+        return await message.answer("❌ Пожалуйста, введите ID или @username пользователя")
+
+    try:
+        identifier, action = text.split()
+    except ValueError:
+        return await message.answer("❌ Пожалуйста, введите ID или @username пользователя + (ban | unban)")
+    
+    if identifier.startswith("@"):
+        username = identifier[1:]
+
+        user = await session.scalar(select(User).where(func.lower(User.username) == username))
+
+    else:
+        tg_id = identifier
+        
+        try:
+            tg_id_int = int(tg_id)
+        except ValueError:
+            return await message.answer("❌ ID пользователя должен быть числом.")
+        
+        user = await session.scalar(select(User).where(User.tg_id == tg_id_int))
+
+    if not user:
+        return await message.answer(f"❌ Не удалось найти пользователя. Попробуйте снова...")
+
+    # user.is_banned = True
+    username = user.username if user.username else ""
+    # await message.answer(f"Пользователь {username} <b>{user.full_name}</b> заблокирован ⭕")
+    
+    event = {
+        "ban" : True,
+        "unban" : False
+    }
 
     
+    if action not in event:
+        return await message.answer("❌ Не удалось идентифицировать команду...")
+    
+    is_banned = event[action.lower()]
+
+    if user.is_banned == is_banned:
+        await state.clear()
+        status_text = "уже забанен" if user.is_banned else "еще не забанен"
+        return await message.answer(f"⚠️ Пользователь @{username} {status_text}. Действие не требуется.")
+
+    user.is_banned = is_banned
+    await session.commit()
+    await state.clear()
+
+    if is_banned:
+        await message.answer(
+        f"✅ Пользователь @{username} ({user.full_name}) заблокирован."
+        )
+    else:
+        await message.answer(
+            f"✅ Пользователь @{username} ({user.full_name}) разблокирован."
+        )
+
+@admin_router.callback_query(F.data == "cancel_banned_user", BannedUserState.waiting_for_identifier)
+async def cancel_upload(callback: CallbackQuery, state: FSMContext):
+   await state.clear()
+   await callback.message.edit_text("🚫 Управление статусом пользователя отменено")
+   await callback.answer()

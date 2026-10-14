@@ -29,7 +29,8 @@ def admin_menu() -> ReplyKeyboardMarkup:
         KeyboardButton(text="👤 Рассылка"),
         KeyboardButton(text="🎫 Создать промокод"),
         KeyboardButton(text="💵 Управление балансом"),
-        KeyboardButton(text="🔍 Найти заказ по ID")
+        KeyboardButton(text="🔍 Поиск заказов"),
+        KeyboardButton(text="⭕ Бан пользователя")
     )
 
     
