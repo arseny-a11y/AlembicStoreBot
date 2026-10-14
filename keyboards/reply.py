@@ -28,9 +28,10 @@ def admin_menu() -> ReplyKeyboardMarkup:
         KeyboardButton(text="📦 Управление товарами"),
         KeyboardButton(text="👤 Рассылка"),
         KeyboardButton(text="🎫 Создать промокод"),
-        KeyboardButton(text="💵 Управление балансом")
+        KeyboardButton(text="💵 Управление балансом"),
+        KeyboardButton(text="🔍 Найти заказ по ID")
     )
 
     
-    kb.adjust(1,2)
+    kb.adjust(2,2)
     return kb.as_markup(resize_keyboard=True)

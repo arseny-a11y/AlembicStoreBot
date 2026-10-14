@@ -1,6 +1,6 @@
 from aiogram.filters import BaseFilter, Command, StateFilter, or_f
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, TelegramObject, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, TelegramObject, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter, TelegramAPIError
@@ -9,7 +9,7 @@ from keyboards.reply import admin_menu
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select,func, delete, update, or_
 from database.models import Categories, Items, User, Orders, PromoCode, PromoUsage, SubCategories, Products
-from keyboards.inline import category_admin, keyboard_categories, cancel_mailing_kb, generation_code_kb, sub_category_admin
+from keyboards.inline import category_admin, keyboard_categories, cancel_mailing_kb, generation_code_kb, sub_category_admin, orders_user_kb
 from database.queries import CreatedCategories, check_promocode
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, time
@@ -94,6 +94,12 @@ class RestockMassState(StatesGroup):
 #FSM состояние для редактирования цены массового товара
 class MassEditPriceState(StatesGroup):
     waiting_for_price = State()
+
+#FSM состояние для вывода покупок пользователя
+class OrdersUserState(StatesGroup):
+    waiting_for_order_id = State()
+    waiting_for_identifier = State()
+
 
 @admin_router.message(or_f(Command("admin"), F.text.in_(["🤖 Админка","админ"])))
 async def admin_command(message: Message):
@@ -396,6 +402,7 @@ async def mass_loading_products(message: Message, state: FSMContext, session: As
       f"💵 <b>Цена за шт:</b> {new_product.price} ₽\n"
       f"📊 <b>Загружено в лот:</b> {len(items_to_add)} шт.",
       parse_mode="HTML",
+      reply_markup=admin_menu()
   )
 
 #пополнение существующего массового товара
@@ -676,7 +683,12 @@ async def edit_price_mass_product(message: Message, state: FSMContext, session: 
 async def sales_stats(message: Message, session: AsyncSession):
     
     #дата 00-00 сегодняшнего числа
-    time_start = datetime.combine(datetime.now().date(), time.min)
+    from datetime import datetime, time, timezone
+
+# Начало сегодняшнего дня строго в UTC:
+    time_start = datetime.combine(
+        datetime.now(timezone.utc).date(), time.min
+        ).replace(tzinfo=None)
 
     #кол-во юзеров в боте
     all_user_in_bot = await session.scalar(select(func.count(User.id))) or 0 
@@ -686,23 +698,36 @@ async def sales_stats(message: Message, session: AsyncSession):
     users_balance = await session.scalar(select(func.sum(User.balance))) or 0
 
     #всего продано товаров за все время
-    all_salles_count = await session.scalar(select(func.count(Orders.id))) or 0
+    all_salles_count = await session.scalar(select(func.count(Orders.id)).where(Orders.refund.is_(False))) or 0
     #куплено товаров за сегодня 
-    salles_for_day = await session.scalar(select(func.count(Orders.id)).where(Orders.purchased_at >= time_start)) or 0
+    salles_for_day = await session.scalar(select(func.count(Orders.id)).where(Orders.purchased_at >= time_start, Orders.refund.is_(False))) or 0
+
     # кол-во товаров в наличии
     num_items_stock = await session.scalar(select(func.count(Items.id)).where(Items.is_sold.is_(False))) or 0
 
+    #убыток за все время
+    loss_all = await session.scalar(select(func.sum(Orders.purchase_price)).where(Orders.refund.is_(True))) or 0
+    #убыток за сегодня
+    loss_all_for_day = await session.scalar(select(func.sum(Orders.purchase_price)).where(Orders.purchased_at >= time_start, Orders.refund.is_(True))) or 0
+
     #выручка всего
-    total_revenue = await session.scalar(select(func.sum(Orders.price))) or 0
+    total_revenue = await session.scalar(select(func.sum(Orders.price)).where(Orders.refund.is_(False))) or 0
     #выручка за сегодня
-    revenue_for_day = await session.scalar(select(func.sum(Orders.price)).where(Orders.purchased_at >= time_start)) or 0
+    revenue_for_day = await session.scalar(select(func.sum(Orders.price)).where(Orders.purchased_at >= time_start, Orders.refund.is_(False))) or 0
 
     #чистыми за все время
-    total_cost = await session.scalar(select(func.sum(Orders.purchase_price))) or 0
-    clean_money = total_revenue - total_cost
+    total_cost = await session.scalar(select(func.sum(Orders.purchase_price)).where(Orders.refund.is_(False))) or 0
+    clean_money = total_revenue - total_cost - loss_all
     #чистыми за сегодня
-    cost_for_day = await session.scalar(select(func.sum(Orders.purchase_price)).where(Orders.purchased_at >= time_start)) or 0
-    clean_money_for_day = revenue_for_day - cost_for_day
+    cost_for_day = await session.scalar(select(func.sum(Orders.purchase_price)).where(Orders.purchased_at >= time_start, Orders.refund.is_(False))) or 0
+    clean_money_for_day = revenue_for_day - cost_for_day - loss_all_for_day
+
+
+    #кол-во возвратов
+    refund_count = await session.scalar(select(func.count(Orders.id)).where(Orders.refund.is_(True))) or 0
+    #сумма возвратов
+    refund_sum = await session.scalar(select(func.sum(Orders.price)).where(Orders.refund.is_(True))) or 0
+
 
     text = (
         "📊 **𝗦𝗧𝗔𝗧𝗜𝗦𝗧𝗜𝗖𝗦 | Панель управления**\n\n"
@@ -717,8 +742,13 @@ async def sales_stats(message: Message, session: AsyncSession):
         "💰 **Финансы:**\n"
         f"├ Выручка (всего): `{total_revenue:.2f} ₽`\n"
         f"├ Выручка за сегодня: `{revenue_for_day:.2f} ₽`\n"
-        f"└ Чистыми за все время: `{clean_money:.2f} ₽`\n"
-        f"└ Чистыми за сегодня: `{clean_money_for_day:.2f} ₽`"
+        f"├ Чистыми за все время: `{clean_money:.2f} ₽`\n"
+        f"└ Чистыми за сегодня: `{clean_money_for_day:.2f} ₽`\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🔄 **Возвратов:**\n `{refund_count}` шт на сумму: `{refund_sum:.2f}` ₽\n\n"
+        f"⭕ **Убыток: **\n"
+        f"├ За все время: `{loss_all:.2f} ₽`\n"
+        f"└ За сегодня: `{loss_all_for_day:.2f} ₽`"
     )
 
     await message.answer(text=text,parse_mode="Markdown")
@@ -1239,7 +1269,7 @@ async def top_up_balance_user(message: Message, state: FSMContext):
         ]
     )
 
-    await message.answer("Введите ID или @username (обязательно с @ ) пользователя: ",reply_markup=cancel_kb)
+    await message.answer("🔍 Введите (ID / @username) пользователя (обязательно с @): ",reply_markup=cancel_kb)
 
 @admin_router.message(AdminBalanceState.waiting_for_identifier)
 async def identifier_user_fsm(message: Message, state: FSMContext):
@@ -1337,7 +1367,7 @@ async def amount_user_fsm(message: Message, state: FSMContext, session: AsyncSes
     await session.commit()
     await state.clear()
 
-    await message.answer(f"✅ Баланс пользователя измене на <b>{op}{amount}</b> ₽", parse_mode="HTML")
+    await message.answer(f"✅ Баланс пользователя изменен на <b>{op}{amount}</b> ₽", parse_mode="HTML")
 
     try:
         if op == "+":
@@ -1369,3 +1399,218 @@ async def cancel_managment_balance(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("🚫 Управление балансом отменено")
     await callback.answer()
 
+#--------------------------------------поиск оредоров пользователей--------------------------------------
+@admin_router.message(F.text == "🔍 Найти заказ по ID")
+async def show_orders_user(message: Message):
+    await message.answer(
+      "🔍 <b>Выберите тип поиска:</b>\n\n"
+      "• <b>По заказу:</b> мгновенный переход к деталям покупки и возврату\n"
+      "• <b>По пользователю:</b> профиль, баланс и последние 10 заказов",
+      reply_markup=orders_user_kb(),
+      parse_mode="HTML",
+  )
+
+#поиск заказа по ID
+@admin_router.callback_query(F.data == "search_by_order_id")
+async def order_search_by_id(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+
+    await state.set_state(OrdersUserState.waiting_for_order_id)
+
+    cancel_kb = InlineKeyboardMarkup(
+      inline_keyboard=[[
+          InlineKeyboardButton(
+              text="❌ Отмена", callback_data="cancel_search_order"
+          )
+      ]]
+    )
+
+    await callback.message.edit_text(
+      "✍️ Введите <b>ID заказа</b> (число):",
+      reply_markup=cancel_kb,
+      parse_mode="HTML",
+    )
+
+@admin_router.message(OrdersUserState.waiting_for_order_id)
+async def order_search_by_id_fsm(message: Message, state: FSMContext, session: AsyncSession):
+    text = (message.text or "").strip()
+
+    if not text.isdigit() or len(text) > 10 or int(text) <= 0:
+        return await message.answer(
+            "❌ ID должно быть целым положительным числом (например: <code>5</code>)",
+            parse_mode="HTML",
+        )
+    order_id = int(text)
+
+    order = await session.get(Orders, order_id)
+
+    if not order:
+        return await message.answer(
+            f"❌ Заказ #{order_id} не найден в базе данных. Попробуйте еще раз..."
+        )
+    await state.clear()
+
+    user = await session.scalar(select(User).where(User.tg_id == order.user_id))
+    if not user:
+        return await message.answer("❌ Пользователь не найден")
+    
+    username = user.username if user.username else "отсутствует"
+    raw_item_data = order.item_data if order.item_data else "данные отсутствуют"
+
+    refunf_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Возврат средств", callback_data=f"refund_user:{order.id}")]
+        ]
+    )
+    status_badge = " [ ↩️ ВОЗВРАТ ]" if order.refund else ""
+
+    order_info = (
+        f"📦 <b>Заказ #{order.id}</b>  {status_badge}\n\n"
+        f"👤 <b>ID клиента:</b> <code>{order.user_id}</code>\n"
+        f"🏷 <b>Товар:</b> {order.name}\n"
+        f"💰 <b>Сумма:</b> <code>{order.price} ₽</code>\n\n"
+    )
+
+    user_info = (
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Данные о покупателе #{user.tg_id}:\n"
+        f"👤 <b>Username:</b> @{username}\n"
+        f"👤 <b>Полное имя:</b> {html.escape(user.full_name or '')}\n"
+        f"📆 <b>Дата регистрации:</b> <code>{user.registered_at}</code>\n"
+        f"💰 <b>Баланс:</b> <code>{user.balance} ₽</code>"
+    )
+
+    if len(raw_item_data) > 500:
+        text = (
+          f"{order_info}"
+          f"🔑 <b>Выданный товар:</b>\n"
+          f"📁 <i>Данные слишком объемные и прикреплены файлом ниже 👇</i>\n\n"
+          f"{user_info}"
+        )
+
+        await message.answer(text=text, parse_mode="HTML", reply_markup=refunf_kb)
+
+        file_data = raw_item_data.encode("utf-8")
+        document = BufferedInputFile(
+            file_data, filename=f"order_{order.id}_data.txt"
+        )
+
+        await message.answer_document(
+            document=document,
+            caption=f"📄 Товар из заказа #{order.id}"
+        )
+    else:
+        escaped_item_data = html.escape(raw_item_data)
+        text = (
+           f"{order_info}"
+           f"🔑 <b>Выданный товар:</b>\n"
+           f"<code>{escaped_item_data}</code>\n\n"
+           f"{user_info}"
+        )
+        await message.answer(text=text, parse_mode="HTML", reply_markup=refunf_kb)
+
+#поиск пользователя вместе с его заказами
+@admin_router.callback_query(F.data == "search_by_user_orders")
+async def search_orders_user(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+
+    await state.set_state(OrdersUserState.waiting_for_identifier)
+
+    cancel_kb = InlineKeyboardMarkup(
+      inline_keyboard=[[
+          InlineKeyboardButton(
+              text="❌ Отмена", callback_data="cancel_search_order"
+          )
+      ]]
+    )
+
+    await callback.message.edit_text(
+      "✍️ Введите (ID / @username) пользователя (обязательно с @): ",
+      reply_markup=cancel_kb,
+    )
+@admin_router.message(OrdersUserState.waiting_for_identifier)
+async def search_orders_user_fsm(message: Message, state: FSMContext, session: AsyncSession):
+    text = (message.text or "").strip()
+    
+    if not text:
+        return await message.answer("❌ Пожалуйста, введите ID или @username пользователя")
+
+    identifier = text
+    
+    if identifier.startswith("@"):
+        username = identifier[1:]
+
+        user = await session.scalar(select(User).where(func.lower(User.username) == username))
+
+    else:
+        tg_id = identifier
+        
+        try:
+            tg_id_int = int(tg_id)
+        except ValueError:
+            return await message.answer("❌ ID пользователя должен быть числом.")
+        
+        user = await session.scalar(select(User).where(User.tg_id == tg_id_int))
+
+    if not user:
+        return await message.answer(f"❌ Не удалось найти пользователя. Попробуйте снова...")
+
+
+    orders = (
+        await session.scalars(
+            select(Orders).
+            where(Orders.user_id == user.tg_id).
+            order_by(Orders.id.desc()).
+            limit(10)
+        )
+    ).all()
+
+    if not orders:
+        await state.clear()
+        return await message.answer(f"❌ У пользователя #{user.tg_id} нет приобретенных товаров")
+
+    await state.clear()
+
+    all_purchases = []
+
+    for count, order in enumerate(orders, start=1):
+        title = html.escape(order.name or "Товар")
+        price = int(order.price)
+        id = order.id
+
+        raw_data = order.item_data or ""
+        trimmed_data = raw_data[:200]
+        safe_data = html.escape(trimmed_data)
+
+        if len(raw_data) > 200:
+            safe_data += "..."
+
+        status_badge = " [ ↩️ ВОЗВРАТ ]" if order.refund else ""
+        all_purchases.append(
+            f"ID #{id}{status_badge} <b>{count}. {title}</b> — <code>{price} ₽</code>\n"
+            f"📦 <b>Данные:</b>\n"
+            f"<code>{safe_data}</code>"
+        )
+
+    username = user.username if user.username else "отсутствует"
+
+    user_info = (
+        f"\n\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Данные о покупателе #{user.tg_id}:\n"
+        f"👤 <b>Username:</b> @{username}\n"
+        f"👤 <b>Полное имя:</b> {html.escape(user.full_name or '')}\n"
+        f"📆 <b>Дата регистрации:</b> <code>{user.registered_at}</code>\n"
+        f"💰 <b>Баланс:</b> <code>{user.balance} ₽</code>"
+        )
+    
+    text = (
+        "📜 <b>История последних покупок:</b>\n\n"
+        + "\n───────────────\n".join(all_purchases)
+    )
+
+    await message.answer(
+        text=text + user_info,
+        parse_mode="HTML"
+    )
+
+    

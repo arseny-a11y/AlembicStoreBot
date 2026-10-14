@@ -200,7 +200,7 @@ async def enter_mass_count(callback: CallbackQuery, state: FSMContext):
 async def enter_mass_confirm(message: Message, user: User, bot: Bot, state: FSMContext, session: AsyncSession):
     text = (message.text or "").strip()
 
-    if not text.isdigit() or len(text) > 6:
+    if not text.isdigit() or len(text) > 6 or int(text) <= 0:
         return await message.answer(
             "❌ Стоимость товара должна быть целым положительным числом (например: <code>5</code>)",
             parse_mode="HTML",

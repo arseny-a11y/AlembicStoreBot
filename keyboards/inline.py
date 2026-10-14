@@ -276,7 +276,19 @@ def confirm_mass_buy_kb(product_id: int, count: int) -> InlineKeyboardMarkup:
   )
   kb.button(text="❌ Отмена", callback_data="back_to_categories")
 
-
   kb.adjust(1)
 
   return kb.as_markup()
+
+#клавиатура для поиска заказов пользователей
+def orders_user_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+
+    kb.button(text="📦 Найти заказ по ID", callback_data="search_by_order_id")
+    kb.button(text="👤 Найти пользователя (ID / @username)", callback_data="search_by_user_orders")
+    kb.button(text="❌ Отмена", callback_data="cancel_search_orders")
+
+    kb.adjust(2,1)
+
+    return kb.as_markup()
+
