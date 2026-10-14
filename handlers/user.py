@@ -163,10 +163,17 @@ async def history_purchases_handler(callback: CallbackQuery, session: AsyncSessi
     user_id = callback.from_user.id
 
     all_purchases = []
-    query = (await session.scalars(select(Orders).where(Orders.user_id == user_id).order_by(Orders.id.desc()))).all()
+    query = (
+        await session.scalars(
+            select(Orders).
+            where(Orders.user_id == user_id).
+            order_by(Orders.id.desc()).
+            limit(10)
+        )
+    ).all()
 
     if not query:
-        return await callback.answer("У вас еще нет совершенных покупок.", show_alert=True)
+        return await callback.answer("У вас нет совершенных покупок.", show_alert=True)
         
     
 
@@ -182,8 +189,9 @@ async def history_purchases_handler(callback: CallbackQuery, session: AsyncSessi
         if len(raw_data) > 200:
             safe_data += "..."
 
+        status_badge = " [ ↩️ ВОЗВРАТ ]" if q.refund else ""
         all_purchases.append(
-            f"ID #{id} <b>{count}. {title}</b> — <code>{price} ₽</code>\n"
+            f"ID #{id}{status_badge} <b>{count}. {title}</b> — <code>{price} ₽</code>\n"
             f"📦 <b>Данные:</b>\n"
             f"<code>{safe_data}</code>"
         )
