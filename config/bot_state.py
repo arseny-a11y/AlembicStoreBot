@@ -1,0 +1,1 @@
+IS_WORK: bool = True

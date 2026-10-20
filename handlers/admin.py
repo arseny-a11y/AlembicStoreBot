@@ -14,6 +14,7 @@ from database.queries import CreatedCategories, check_promocode
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, time
 from config.config import settings
+import config.bot_state as bot_state
 import operator
 import asyncio
 import string
@@ -1719,3 +1720,15 @@ async def cancel_upload(callback: CallbackQuery, state: FSMContext):
    await state.clear()
    await callback.message.edit_text("🚫 Управление статусом пользователя отменено")
    await callback.answer()
+
+#тумблер тех. работ
+@admin_router.message(Command("work"))
+async def toggle_work(message: Message):
+    bot_state.IS_WORK = not bot_state.IS_WORK
+
+    status = (
+      "🟢 Бот ОТКРЫТ для всех пользователей"
+      if bot_state.IS_WORK
+      else "🔴 Бот закрыт на ТЕХРАБОТЫ (доступ только админам)"
+    )
+    await message.answer(f"<b>Статус бота изменён:</b>\n{status}", parse_mode="HTML")

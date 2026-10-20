@@ -482,7 +482,7 @@ async def buy_mass_product(callback: CallbackQuery, user: User, bot: Bot, sessio
 @router_pay.callback_query(F.data == "leave_review")
 async def func_leave_review(callback: CallbackQuery, user: User, state: FSMContext):
     if user.is_review:
-        return callback.answer("❌ Повторный отзыв о магазине запрещен", show_alert=True)
+        return callback.answer("❌ Нельзя оставлять несколько отзывов", show_alert=True)
 
     await state.set_state(LeaveReviewState.waiting_for_review)
     await callback.answer()

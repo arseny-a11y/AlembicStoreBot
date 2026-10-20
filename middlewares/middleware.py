@@ -8,6 +8,7 @@ from database.queries import UserQueries
 from database.models import User
 from cachetools import TTLCache
 from config.config import settings
+import config.bot_state as bot_state
 from keyboards.inline import sub_channel_kb
 
 class DbSessionMiddleware(BaseMiddleware):
@@ -144,3 +145,33 @@ class SubChannelCheck(BaseMiddleware):
         parse_mode="HTML")
         
         return
+
+#обработчик тех перерывов
+class MaintenanceMiddleware(BaseMiddleware):
+    async def __call__(
+      self,
+      handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+      event: TelegramObject,
+      data: dict[str, Any],
+    ) -> Any:
+
+        if bot_state.IS_WORK:
+            return await handler(event, data)
+
+        user = data.get("event_from_user")
+        if not user:
+            return await handler(event, data)
+
+        if user.id in settings.ADMIN_IDS:
+            return await handler(event, data)
+
+        text = (
+            "🛠 <b>Ведутся технические работы!</b>\n\n"
+            "Магазин временно приостановил приём заказов для обновления.\n"
+            "Скоро вернемся!"
+        )
+
+        if isinstance(event, Message):
+            return event.answer(text=text, parse_mode="HTML")
+        if isinstance(event, CallbackQuery):
+            return event.answer("🛠 Ведутся технические работы!", show_alert=True)
