@@ -73,8 +73,11 @@ def sub_categories_kb(category_id: int, sub_categories: list, is_admin: bool) ->
     kb.adjust(1)
     return kb.as_markup()
 
-def item_card_keyboard(item_id: int, category_id: int, is_admin: bool) -> InlineKeyboardMarkup:
+def item_card_keyboard(item_id: int, photo_url: str, category_id: int, is_admin: bool) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+
+    if photo_url:
+        kb.button(text="🖼️ Посмотреть фото", url=photo_url)
 
     kb.button(text="💳 Купить", callback_data=f"buy_item:{item_id}")
     kb.button(text="🔙 Назад к списку",callback_data=CategoryCD(category_id=category_id).pack())

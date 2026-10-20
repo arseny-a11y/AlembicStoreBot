@@ -228,10 +228,11 @@ async def upload_items_file(message: Message, state: FSMContext, session: AsyncS
     for num, line in enumerate(lines,start=1):
         data_account = [d.strip() for d in line.split("|")]
 
-        if len(data_account) != 5:
-            return await message.answer(f"❌ Ошибка: в строке {num}: ожидалось 5 полей через '|'")
+        if len(data_account) not in (5, 6):
+            return await message.answer(f"❌ Ошибка: в строке {num}: ожидалось 5 ИЛИ 6 полей через '|'")
         
-        title, desc, price, purchase_price, data = data_account
+        title, desc, price, purchase_price, data = data_account[:5]
+        photo_url = data_account[5] if len(data_account) == 6 else None
 
         try:
             clean_price = Decimal(price.replace(",", "."))
@@ -247,6 +248,7 @@ async def upload_items_file(message: Message, state: FSMContext, session: AsyncS
                  price=clean_price,
                  purchase_price=clean_purchase_price,
                  data=data,
+                 photo=photo_url,
                  is_sold=False
             )
         )

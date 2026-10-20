@@ -335,7 +335,8 @@ async def back_to_product(callback: CallbackQuery, callback_data: ItemsCD, sessi
          f"🪙Цена: {item.price}"
     )
     try:
-        await callback.message.edit_text(text,reply_markup=item_card_keyboard(item_id,item.category_id, is_admin=is_admin),parse_mode='HTML')
+        photo_url = item.photo
+        await callback.message.edit_text(text,reply_markup=item_card_keyboard(item_id, photo_url, item.category_id, is_admin=is_admin),parse_mode='HTML')
 
     except TelegramBadRequest as e:
         if "message is not modified" not in e.message:
