@@ -205,9 +205,7 @@ async def history_purchases_handler(callback: CallbackQuery, session: AsyncSessi
     await callback.answer()
 
 #проверка подписки на канал
-
 @user_router.callback_query(F.data == "sub_check")
 async def check_sub_channel(callback: CallbackQuery):
-   await callback.message.delete()
-   await callback.message.answer("✅ Отлично, подписка подтверждена!")
-   await callback.answer() 
+    # Сюда попадают только подписанные пользователи
+    await callback.message.answer("✅ Подписка подтверждена! Доступ открыт.")

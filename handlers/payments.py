@@ -1,6 +1,6 @@
 from config.config import settings
 from payments.crypto_pay import CryptoPay
-from keyboards.inline import BuyCD, top_up_balance_crypto_kb, confirm_buy_item
+from keyboards.inline import BuyCD, top_up_balance_crypto_kb, confirm_buy_item, leave_review_kb, show_review_kb
 from database.models import Items, Payments, User, Orders, Products
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
@@ -11,6 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramAPIError
 from decimal import Decimal
 from handlers.admin import ADMIN_IDS
+from service.review_verif import check_review_with_ai
 import html
 
 router_pay = Router()
@@ -76,11 +77,13 @@ crypto = CryptoPay(settings.CRYPTO_PAY_TOKEN)
 #     )
 #     await callback.answer()
 
-# Пополнение баланса
-
+# FSM состояние для пополнение баланса
 class TopUpBalance(StatesGroup):
     waiting_for_amount = State()
 
+#FSM состояние для оставления отзыва
+class LeaveReviewState(StatesGroup):
+    waiting_for_review = State()
 
 @router_pay.callback_query(F.data == "cancel_balance", TopUpBalance.waiting_for_amount)
 async def cancel_top_up_balance(callback: CallbackQuery, state: FSMContext):
@@ -238,7 +241,7 @@ async def confirm_buy_item_handler(callback: CallbackQuery, session: AsyncSessio
 #Полноценная оплата товара
 @router_pay.callback_query(BuyCD.filter())
 async def buy_product(
-    callback: CallbackQuery, callback_data: BuyCD, session: AsyncSession, bot: Bot
+    callback: CallbackQuery, callback_data: BuyCD, session: AsyncSession, bot: Bot, user: User
 ):
     item_id = callback_data.item_id
 
@@ -269,6 +272,8 @@ async def buy_product(
     user.balance -= item.price
     item.is_sold = True
 
+    caption_review = "\n\n🤝 Оставьте отзыв и получите 5₽ на ваш баланс!" if not user.is_review else ""
+
     # 5. Создаем заказ
     new_order = Orders(
         user_id=user.tg_id,
@@ -292,7 +297,9 @@ async def buy_product(
         f"✅ <b>Покупка успешно совершена!</b>\n\n"
         f"Списано: <code>{item.price} ₽</code>\n"
         f"Остаток: <code>{user.balance} ₽</code>\n\n"
-        f"📦 <b>Данные товара:</b>\n<pre>{safe_data}</pre>",
+        f"📦 <b>Данные товара:</b>\n<pre>{safe_data}</pre>"
+        f"{caption_review}",
+        reply_markup=leave_review_kb(user.is_review),
         parse_mode="HTML",
     )
     await callback.answer()
@@ -357,6 +364,7 @@ async def buy_mass_product(callback: CallbackQuery, user: User, bot: Bot, sessio
     )
 
     price = count * product.price
+    caption_review = "🤝 Оставьте отзыв и получите 5₽ на ваш баланс!\n" if not user.is_review else ""
     
     if user.balance < price:
         return await callback.answer(
@@ -397,19 +405,22 @@ async def buy_mass_product(callback: CallbackQuery, user: User, bot: Bot, sessio
         f"🔢 Количество: <b>{count} шт.</b>\n"
         f"💵 Списано: <code>{price:.2f} ₽</code>\n"
         f"🪙 Остаток на балансе: <code>{user.balance:.2f} ₽</code>\n\n"
-        # f"🔑 <b>Данные товаров:</b>\n<pre>{safe_data}</pre>",
+        f"{caption_review}"
+        
     )
 
     if count <= 5:
         safe_data = html.escape(all_data)
         await callback.message.answer(
             f"{data_text}\n🔑 <b>Данные:</b>\n<pre>{safe_data}</pre>",
+            reply_markup=leave_review_kb(user.is_review),
             parse_mode="HTML",
     )
 
     else:
         await callback.message.edit_text(
             f"{data_text}\n\n📁 <i>Файл с вашими аккаунтами отправлен ниже 👇</i>",
+            reply_markup=leave_review_kb(user.is_review),
             parse_mode="HTML",
         )
 
@@ -465,6 +476,99 @@ async def buy_mass_product(callback: CallbackQuery, user: User, bot: Bot, sessio
         text=admin_text,
         parse_mode="HTML",
         reply_markup=refund_kb
+    )
+
+#возможность оставить отзыв
+@router_pay.callback_query(F.data == "leave_review")
+async def func_leave_review(callback: CallbackQuery, user: User, state: FSMContext):
+    if user.is_review:
+        return callback.answer("❌ Повторный отзыв о магазине запрещен", show_alert=True)
+
+    await state.set_state(LeaveReviewState.waiting_for_review)
+    await callback.answer()
+    await callback.message.answer("✨ Отправьте ваш честный отзыв о товаре: ")
+
+@router_pay.message(LeaveReviewState.waiting_for_review, F.text)
+async def leave_review_fsm(message: Message, user: User, state: FSMContext, session: AsyncSession, bot: Bot):
+
+    AMOUNT = 5
+    review_text = (message.text or "").strip()
+
+    alnum = any(ch.isalnum() for ch in review_text)
+    digit = review_text.isdigit()
+
+    #проверка корретности отзыва, перед отправлением в AI
+    if not alnum or digit or len(review_text) < 10:
+        return await message.answer(
+            "❌ Отзыв слишком короткий или не содержит внятного текста.\n"
+            "Напишите хотя бы пару слов о покупке (минимум 10 символов) — это поможет другим покупателям!"
+            )
+
+    await message.answer("⚙️ Проверям ваш отзыв...")
+    #отправляем отзыв на проверку
+    check_review = await check_review_with_ai(review_text)
+
+    status = check_review.is_approved    
+    reason = check_review.reason
+
+    ident = f"@{user.username}" if user.username else user.tg_id
+    username = user.username if user.username else "отсутствует"
+
+    if not status:
+        # Уведомляем админа о жалобе/проблеме, чтобы быстро решить вопрос
+        await bot.send_message(
+            chat_id=ADMIN_IDS[0],
+            text=(
+                f"⚠️ <b>Отзыв отклонён AI-фильтром:</b>\n\n"
+                f"👤 От: {ident} (<code>{user.tg_id}</code>)\n"
+                f"💬 Текст: <i>«{review_text}»</i>\n\n"
+                f"🤖 Причина: <b>{reason}</b>"
+            ),
+            parse_mode="HTML",
+            )
+        
+        return await message.answer(
+        "Извините за возникшие неудобства 😔\n\n"
+        "Если у вас возникла проблема с товаром, напишите в нашу поддержку — мы поможем:\n"
+        "@Gemaglobin"
+        )
+    
+    user.balance += AMOUNT
+    user.is_review = True
+
+    await state.clear()
+    await session.commit()
+
+    #публикация в канал
+    try:
+        await bot.forward_message(
+            chat_id=settings.CHANNEL_ID_REVIEW,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id
+        )
+    except Exception:
+        pass
+
+    await message.answer(
+        f"✅ Спасибо за отзыв, <b>{message.from_user.first_name}</b>!\n\n"
+        f"Ваш баланс пополнен на <code>{AMOUNT}</code> ₽\n"
+        f"Текущий баланс: <code>{user.balance}</code> ₽\n\n"
+        f"✨ Ваш отзыв опубликован в канале.",
+        reply_markup=show_review_kb(),
+        parse_mode="HTML",
+    )
+
+    #Отчёт админу об успешном отзыве
+    await bot.send_message(
+      chat_id=ADMIN_IDS[0],
+      text=(
+          f"🎉 <b>Опубликован новый отзыв</b>\n\n"
+          f"👤 Покупатель: {ident}\n"
+          f"💬 Текст: <code>{review_text}</code>\n"
+          f"🤖 Вердикт AI: {reason}"
+      ),
+      reply_markup=show_review_kb(),
+      parse_mode="HTML",
     )
 
 #возврат средств

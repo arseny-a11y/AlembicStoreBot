@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from sqlalchemy import func, BigInteger, Numeric, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase, relationship
-from typing import Annotated
+from typing import Annotated, Optional
 from enum import Enum
 
 class Base(DeclarativeBase):
@@ -28,6 +28,7 @@ class User(Base):
     full_name: Mapped[str]
     registered_at: Mapped[time_now]
     balance: Mapped[Decimal] = mapped_column(Numeric(10,2),default=Decimal('0.00'))
+    is_review: Mapped[bool] = mapped_column(default=False, server_default="0")
     is_banned: Mapped[bool] = mapped_column(default=False, server_default="0")
 
 
@@ -75,6 +76,7 @@ class Items(Base):
     price: Mapped[Decimal | None] = mapped_column(Numeric(10,2), nullable=True, default=None)
     purchase_price: Mapped[Decimal] = mapped_column(Numeric(10,2), nullable=False)
     data: Mapped[str] = mapped_column(Text)
+    photo: Mapped[str | None] = mapped_column(nullable=True, default=None)
     is_sold: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[time_now]
 

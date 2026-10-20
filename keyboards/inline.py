@@ -51,7 +51,9 @@ def keyboard_categories(categories: list, is_admin: bool = False) -> InlineKeybo
 
     if is_admin:
         kb.button(text="📦 Создать категорию",callback_data="create_category")
-        
+
+    kb.button(text="⭐ Посмотреть отзывы", url=settings.CHANNEL_URL_REVIEW)
+    
     kb.adjust(1)
     return kb.as_markup()
 
@@ -292,3 +294,19 @@ def orders_user_kb() -> InlineKeyboardMarkup:
 
     return kb.as_markup()
 
+#кнопка оставить отзыв
+def leave_review_kb(is_review: bool) -> InlineKeyboardMarkup | None:
+    if is_review:
+        # Если отзыв уже есть/одобрен — кнопок не нужно
+        return None
+
+    kb = InlineKeyboardBuilder()
+    kb.button(text="⭐ Оставить отзыв", callback_data="leave_review")
+    return kb.as_markup()
+
+#кнопка просмотра отзывов
+def show_review_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+
+    kb.button(text="⭐ Посмотреть отзывы", url=settings.CHANNEL_URL_REVIEW)
+    return kb.as_markup()

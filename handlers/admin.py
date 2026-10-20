@@ -133,7 +133,7 @@ async def cancel_upload(callback: CallbackQuery, state: FSMContext):
    await callback.message.edit_text("🚫 Загрузка отменена")
    await callback.answer()
 
-@admin_router.message(F.text == "📥 Загрузить (.txt) файл товаров")
+@admin_router.message(F.text == "📥 Загрузить товары (.txt)")
 async def upload_items(message: Message, session: AsyncSession, state: FSMContext):
     
     categories = (await session.scalars(select(Categories))).all()
@@ -220,7 +220,8 @@ async def upload_items_file(message: Message, state: FSMContext, session: AsyncS
 
     products = []
 
-    lines = [line.strip() for line in content.splitlines() if line.strip()] 
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    
     if not lines:
         return await message.answer("❌ Ошибка: файл пуст")
 
@@ -1238,9 +1239,9 @@ async def amount_promocode(message: Message, state: FSMContext, session: AsyncSe
     text = message.text.strip() if message.text else ""
 
     # Проверяем, что это строго положительное целое число
-    if not text.isdigit() or int(text) <= 0:
+    if not text.isdigit() or len(text) > 6 or int(text) <= 0:
         return await message.answer(
-            "⚠️ Пожалуйста, введите положительное целое число (больше 0):"
+            "⚠️ Пожалуйста, введите положительное целое число (больше 0, не огромное):"
         )
 
     amount = int(text)
@@ -1341,7 +1342,7 @@ async def amount_user_fsm(message: Message, state: FSMContext, session: AsyncSes
         return await message.answer("❌ Ошибка сессии: идентификатор пользователя потерян. Начните заново.")
     
     if identifier.startswith("@"):
-        username = identifier[1:]
+        username = identifier[1:].lower()
 
         user = await session.scalar(select(User).where(func.lower(User.username) == username))
 
@@ -1555,7 +1556,7 @@ async def search_orders_user_fsm(message: Message, state: FSMContext, session: A
     identifier = text
     
     if identifier.startswith("@"):
-        username = identifier[1:]
+        username = identifier[1:].lower()
 
         user = await session.scalar(select(User).where(func.lower(User.username) == username))
 
@@ -1661,7 +1662,7 @@ async def banned_user_fsm(message: Message, state: FSMContext, session: AsyncSes
         return await message.answer("❌ Пожалуйста, введите ID или @username пользователя + (ban | unban)")
     
     if identifier.startswith("@"):
-        username = identifier[1:]
+        username = identifier[1:].lower()
 
         user = await session.scalar(select(User).where(func.lower(User.username) == username))
 

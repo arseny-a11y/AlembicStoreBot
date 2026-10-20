@@ -23,7 +23,7 @@ def create_keyboard_menu(is_admin: bool = False) -> ReplyKeyboardMarkup:
 def admin_menu() -> ReplyKeyboardMarkup:
     kb = ReplyKeyboardBuilder()
     kb.add(
-        KeyboardButton(text="📥 Загрузить (.txt) файл товаров"),
+        KeyboardButton(text="📥 Загрузить товары (.txt)"),
         KeyboardButton(text="📊 Статистика"),
         KeyboardButton(text="📦 Управление товарами"),
         KeyboardButton(text="👤 Рассылка"),
@@ -36,3 +36,4 @@ def admin_menu() -> ReplyKeyboardMarkup:
     
     kb.adjust(2,2)
     return kb.as_markup(resize_keyboard=True)
+
