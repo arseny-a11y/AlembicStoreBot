@@ -5,7 +5,7 @@ from database.models import Items, Payments, User, Orders, Products
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
 from aiogram import Router, F, Bot
-from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile
+from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramAPIError
@@ -88,8 +88,9 @@ class LeaveReviewState(StatesGroup):
 @router_pay.callback_query(F.data == "cancel_balance", TopUpBalance.waiting_for_amount)
 async def cancel_top_up_balance(callback: CallbackQuery, state: FSMContext):
    await state.clear()
-   await callback.message.edit_text("🚫 Пополнение баланса отменено")
-   await callback.answer()
+   await callback.answer("Пополнение отменено")
+   await callback.message.delete()
+   await callback.message.answer("🚫 Пополнение баланса отменено")
 
 @router_pay.message(F.text == "Пополнить баланс 📥")
 async def top_up_balance_message(message: Message, state: FSMContext):
@@ -100,7 +101,14 @@ async def top_up_balance_message(message: Message, state: FSMContext):
     )
 
     await state.set_state(TopUpBalance.waiting_for_amount)
-    await message.answer("Введите сумму пополнения в рублях (минимум 50 ₽):", reply_markup=cancel_kb)
+
+    photo = FSInputFile("images/balance.jpg")
+    await message.answer_photo(
+        photo=photo,
+        caption="Введите сумму пополнения в рублях (минимум 50 ₽):",
+        reply_markup=cancel_kb
+    )
+   
 
 @router_pay.callback_query(F.data == "top_up_balance")
 async def top_up_balance_callback(callback: CallbackQuery, state: FSMContext):
@@ -112,9 +120,15 @@ async def top_up_balance_callback(callback: CallbackQuery, state: FSMContext):
         ]
     )
 
-
     await state.set_state(TopUpBalance.waiting_for_amount)
-    await callback.message.answer("Введите сумму пополнения в рублях (минимум 50 ₽):", reply_markup=cancel_kb)
+
+    photo = FSInputFile("images/balance.jpg")
+
+    await callback.message.answer_photo(
+        photo=photo,
+        caption="Введите сумму пополнения в рублях (минимум 50 ₽):",
+        reply_markup=cancel_kb
+    )
 
 @router_pay.message(TopUpBalance.waiting_for_amount)
 async def process_top_up(message: Message, state: FSMContext):
@@ -148,7 +162,7 @@ async def cancel_crypto_invoice_handler(callback: CallbackQuery):
     await callback.message.edit_text(f"🚫 Счет с идентификатором <code>#{invoice_id}</code> был отменен", parse_mode="HTML")
     await callback.answer()
 
-
+#проверка пополнения
 @router_pay.callback_query(F.data.startswith("check_pay_crypto"))
 async def check_payment(callback: CallbackQuery,session: AsyncSession):
     invoice_id = int(callback.data.split(":")[-1])
@@ -477,16 +491,30 @@ async def buy_mass_product(callback: CallbackQuery, user: User, bot: Bot, sessio
         parse_mode="HTML",
         reply_markup=refund_kb
     )
+#отмена оставления отзыва
+@router_pay.callback_query(F.data == "cancel_review", LeaveReviewState.waiting_for_review)
+async def cancel_top_up_balance(callback: CallbackQuery, state: FSMContext):
+   await callback.answer("Отмена")
+   await state.clear()
+   await callback.message.edit_text("🚫 Написание отзыва отменено.")
 
 #возможность оставить отзыв
 @router_pay.callback_query(F.data == "leave_review")
 async def func_leave_review(callback: CallbackQuery, user: User, state: FSMContext):
+    await callback.answer()
+
     if user.is_review:
         return callback.answer("❌ Нельзя оставлять несколько отзывов", show_alert=True)
 
     await state.set_state(LeaveReviewState.waiting_for_review)
-    await callback.answer()
-    await callback.message.answer("✨ Отправьте ваш честный отзыв о товаре: ")
+
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_review")]
+        ]
+    )
+
+    await callback.message.answer("✨ Отправьте ваш честный отзыв о товаре: ",reply_markup=cancel_kb)
 
 @router_pay.message(LeaveReviewState.waiting_for_review, F.text)
 async def leave_review_fsm(message: Message, user: User, state: FSMContext, session: AsyncSession, bot: Bot):
@@ -497,11 +525,19 @@ async def leave_review_fsm(message: Message, user: User, state: FSMContext, sess
     alnum = any(ch.isalnum() for ch in review_text)
     digit = review_text.isdigit()
 
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_review")]
+        ]
+    )
+
+
     #проверка корретности отзыва, перед отправлением в AI
     if not alnum or digit or len(review_text) < 10:
         return await message.answer(
             "❌ Отзыв слишком короткий или не содержит внятного текста.\n"
-            "Напишите хотя бы пару слов о покупке (минимум 10 символов) — это поможет другим покупателям!"
+            "Напишите хотя бы пару слов о покупке (минимум 10 символов) — это поможет другим покупателям!",
+            reply_markup=cancel_kb
             )
 
     await message.answer("⚙️ Проверям ваш отзыв...")
@@ -530,7 +566,8 @@ async def leave_review_fsm(message: Message, user: User, state: FSMContext, sess
         return await message.answer(
         "Извините за возникшие неудобства 😔\n\n"
         "Если у вас возникла проблема с товаром, напишите в нашу поддержку — мы поможем:\n"
-        "@Gemaglobin"
+        "@Gemaglobin\n"
+        "Или попробуйте снова, AI менеджер может глупить..."
         )
     
     user.balance += AMOUNT

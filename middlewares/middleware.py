@@ -172,6 +172,6 @@ class MaintenanceMiddleware(BaseMiddleware):
         )
 
         if isinstance(event, Message):
-            return event.answer(text=text, parse_mode="HTML")
+            return await event.answer(text=text, parse_mode="HTML")
         if isinstance(event, CallbackQuery):
-            return event.answer("🛠 Ведутся технические работы!", show_alert=True)
+            return await event.answer("🛠 Ведутся технические работы!", show_alert=True)

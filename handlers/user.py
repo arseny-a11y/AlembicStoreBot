@@ -23,47 +23,62 @@ async def start_command(message: Message, user: User):
 
     is_admin = message.from_user.id in ADMIN_IDS
 
-    photo = FSInputFile('images/menu.png')
+    photo = FSInputFile('images/logo.png')
+
+    user_name = escape(message.from_user.first_name)
 
     text = (
-        f"👋 <b>{message.from_user.first_name}</b>, приветствуем тебя!\n\n"
-        "🎉 <b>Добро пожаловать в SUP SHOP!</b>\n"
-        "У нас ты найдешь лучший выбор аккаунтов и цифровых товаров Supercell.\n\n"
-        "😉 Заглядывай в каталог и выбирай самые топовые товары! С любовью, SUP SHOP 🧡"
+        f"👋 <b>Рады видеть тебя, {user_name}!</b>\n\n"
+        "<blockquote>Добро пожаловать в <b>ALEMBIC STORE</b> — твой главный проводник "
+        "в мир качественных цифровых товаров и проверенных аккаунтов.</blockquote>\n\n"
+        "⚡️ <b>Что тебя ждёт:</b>\n"
+        "├ <b>Мгновенная выдача</b> сразу после покупки\n"
+        "├ <b>Лучший прайс</b> на рынке для себя и перепродажи\n"
+        "└ <b>Гарантия чистоты</b> каждой позиции\n\n"
+        "🛒 <i>Открывай каталог ниже и забирай лучшее прямо сейчас!</i>"
     )
     await message.answer_photo(photo=photo,caption=text,parse_mode='HTML',reply_markup=create_keyboard_menu(is_admin))
 
 
 #обработка информации о магазине
-@user_router.message(F.text == "ℹ️ О SUP SHOP")
+@user_router.message(F.text == "ℹ️ О ALEMBIC STORE")
 async def information_shop(message: Message):
-    photo = FSInputFile('images/menu.png')
+    photo = FSInputFile('images/logo.png')
 
     text = (
-        "👋 <b>Приветствуем в SUP SHOP!</b>\n\n"
-        "❤️ Мы рады предложить вам широкий ассортимент товаров по конкурентным ценам. 🛍 Наша бизнес-модель основана на приобретении дорогостоящих материалов 💎 и их реализации по более доступным ценам 💰 благодаря работе с большой аудиторией. 👨‍👩‍👧‍👦\n\n"
-        "📅 Дата основания магазина: 04.09.2026."
+        "🏪 <b>ALEMBIC STORE — Твой надежный цифровой маркетплейс</b>\n\n"
+        "<blockquote>Мы предоставляем широкий выбор проверенных цифровых товаров "
+        "по оптовым ценам — как для личного пользования, так и для стабильного заработка на перепродаже.</blockquote>\n\n"
+        "💎 <b>Почему именно мы?</b>\n"
+        "├ <b>Безопасность:</b> исключительно чистые и проверенные позиции\n"
+        "├ <b>Выгода:</b> минимальная наценка за счет больших объемов продаж\n"
+        "└ <b>Доверие:</b> тысячи довольных клиентов и прозрачные условия\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "📅 <b>Работаем для вас с:</b> <code>04.09.2026</code>"
     )
+
     await message.answer_photo(photo=photo,caption=text,parse_mode='HTML')
 
 
 #обработка запроса на контакты поддержки
 @user_router.message(F.text == "🆘 Поддержка")
 async def support_shop(message: Message):
-    photo = FSInputFile('images/support.png')
+    photo = FSInputFile('images/support.jpg')
 
     text = (
-        "🤝 В нашем боте вы всегда можете рассчитывать на оперативную поддержку! Возникли вопросы при покупке, оплате или получении товара? Пишите нам! Мы ответим максимально быстро и решим вашу проблему\n\n"
-        "🚨 Внимание! Мы никогда не пишем первыми. Если вам кто-то пишет от имени нашего бота или службы поддержки — это мошенники. Будьте осторожны!\n\n"
-        "✍️ Связаться с поддержкой: @Gemaglobin"
+        "🤝 <b>Нужна помощь? Мы рядом!</b>\n\n"
+        "<blockquote>Возник вопрос по заказу или пополнению баланса? Напишите нам, подробно опишите ситуацию и укажите ID заказа — мы сразу включимся в решение.</blockquote>\n\n"
+        "🛑 <b>Правило безопасности:</b> мы не пишем первыми и не просим ваши пароли.\n\n"
+        "✍️ <b>Оператор поддержки:</b> @Gemaglobin"
     )
-    await message.answer_photo(photo=photo,caption=text,reply_markup=keyboard_support())
+
+    await message.answer_photo(photo=photo,caption=text,reply_markup=keyboard_support(), parse_mode="HTML")
 
 
 #обработка запроса на статистику профиля
 @user_router.message(F.text == "Профиль 👤")
 async def user_profile(message: Message, user: User):
-    photo = FSInputFile('images/profile.png')
+    photo = FSInputFile('images/profile.jpg')
 
     registered_at = user.registered_at.strftime("%d.%m.%Y")
     username = user.username if user.username else 'Отсутсвует'
@@ -71,6 +86,7 @@ async def user_profile(message: Message, user: User):
         f"📍<b>ID</b>: {user.tg_id}\n"
         f"💾 <b>Имя</b>: @{username}\n"
         f"💵 <b>Баланс</b>: {user.balance}\n"
+        f"━━━━━━━━━━━\n"
         f"🕑 <b>Дата регистрации</b>: {registered_at}\n"
     )
     await message.answer_photo(photo=photo,caption=text,reply_markup=keyboard_profile(),parse_mode='HTML')

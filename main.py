@@ -12,6 +12,9 @@ from handlers.admin import admin_router
 from handlers.payments import router_pay
 
 async def main():
+
+    logging.basicConfig(level=logging.INFO)
+    
     session = AiohttpSession(proxy=settings.PROXY_URL)
     bot = Bot(settings.TOKEN,session=session)
     dp = Dispatcher()
@@ -19,17 +22,18 @@ async def main():
     
     #инициализируем табилицы в базе
     await init_db()
+
     #подключаем middlewares
-    dp.message.outer_middleware(MaintenanceMiddleware())
-    dp.callback_query.outer_middleware(MaintenanceMiddleware())
+    dp.update.outer_middleware(AntiFrod())
 
-    anti_frod = AntiFrod()
-    dp.message.outer_middleware(anti_frod)
-    dp.callback_query.outer_middleware(anti_frod)
+    # 2. Проверка режима техработ
+    dp.update.outer_middleware(MaintenanceMiddleware())
 
+    # 3. Работа с базой данных (открытие сессии и регистрация/получение юзера)
     dp.update.outer_middleware(DbSessionMiddleware(session_pool=async_session_factory))
     dp.update.outer_middleware(UserDatabaseMiddleware())
 
+    # 4. Проверка обязательной подписки на канал
     sub_channel = SubChannelCheck()
     user_router.message.middleware(sub_channel)
     user_router.callback_query.middleware(sub_channel)
@@ -44,7 +48,7 @@ async def main():
         catalog_router,
         user_router,
     )
-    logging.basicConfig(level=logging.INFO)
+
  
     try:
         print('Бот запущен!')

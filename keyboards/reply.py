@@ -9,7 +9,7 @@ def create_keyboard_menu(is_admin: bool = False) -> ReplyKeyboardMarkup:
         KeyboardButton(text='Каталог товаров 🛒'),
         KeyboardButton(text='Профиль 👤'),
         KeyboardButton(text='Пополнить баланс 📥'),
-        KeyboardButton(text='ℹ️ О SUP SHOP'),
+        KeyboardButton(text='ℹ️ О ALEMBIC STORE'),
         KeyboardButton(text='🆘 Поддержка')
     )
 

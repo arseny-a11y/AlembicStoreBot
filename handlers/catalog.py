@@ -3,7 +3,7 @@ from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, FSInputFile
 from sqlalchemy import select,func
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.models import Categories, Items, SubCategories, Products, User
@@ -32,13 +32,21 @@ catalog_router = Router()
 
 @catalog_router.message(F.text == "Каталог товаров 🛒")
 async def open_catalog(message: Message, session: AsyncSession):
+
     is_admin = message.from_user.id in ADMIN_IDS
     categories = await ProductsQueries.get_all_categories(session)
+
     if not categories:
         return await message.answer("Каталог пока пуст. Скоро здесь появятся товары!")
-    
-    await message.answer("Выберите интересующий раздел:",reply_markup=keyboard_categories(categories,is_admin))
 
+    photo = FSInputFile("images/catalog.jpg")
+    
+    await message.answer_photo(
+        photo=photo,
+        caption="Выберите интересующий раздел:",
+        reply_markup=keyboard_categories(categories,is_admin)
+        )
+    
 @catalog_router.callback_query(CategoryCD.filter())
 async def show_category_pagination(callback: CallbackQuery,callback_data: CategoryCD, session: AsyncSession):
     is_admin = (
@@ -50,8 +58,9 @@ async def show_category_pagination(callback: CallbackQuery,callback_data: Catego
     
     if not sub_cat and not is_admin:
         return await callback.answer("⚠️ В этом разделе пока нет товара.", show_alert=True)
-        
-    await callback.message.edit_text("Выберите подкатегорию:", reply_markup=sub_categories_kb(category_id, sub_cat, is_admin))
+
+    await callback.message.delete()
+    await callback.message.answer("Выберите подкатегорию:", reply_markup=sub_categories_kb(category_id, sub_cat, is_admin))
     await callback.answer()
 
 @catalog_router.callback_query(SubCategoryCD.filter())
@@ -351,7 +360,14 @@ async def back_to_categories_menu(callback: CallbackQuery, session: AsyncSession
     categories = await ProductsQueries.get_all_categories(session)
     if not categories:
         return await callback.answer("Каталог пока пуст. Скоро здесь появятся товары!")
-    
-    await callback.message.edit_text(text="Выберите интересующий раздел:",reply_markup=keyboard_categories(categories, is_admin))
-    await callback.answer()
+
+    await callback.message.delete()
+    photo = FSInputFile("images/catalog.jpg")
+
+    await callback.message.answer_photo(
+        photo=photo,
+        caption="Выберите интересующий раздел:",
+        reply_markup=keyboard_categories(categories, is_admin)
+    )
+
 

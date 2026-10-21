@@ -849,12 +849,13 @@ async def delete_item(callback: CallbackQuery, session: AsyncSession):
 
 @admin_router.callback_query(F.data == "cancel_create_cat", CreateCategory.waiting_for_name)
 async def cancel_create_category(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     await state.clear()
     await callback.message.edit_text("🚫 Создание категории отменено")
-    await callback.answer()
 
 @admin_router.callback_query(F.data == "create_category")
 async def created_category_button(callback: CallbackQuery,state: FSMContext):
+    await callback.answer()
 
     cancel_kb = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -863,8 +864,10 @@ async def created_category_button(callback: CallbackQuery,state: FSMContext):
     )
 
     await state.set_state(CreateCategory.waiting_for_name)
-    await callback.message.edit_text("💬 Введите название категории: ", reply_markup=cancel_kb)
-    await callback.answer()
+    await callback.message.delete()
+
+    await callback.message.answer("💬 Введите название категории: ", reply_markup=cancel_kb)
+    
 
 
 @admin_router.message(CreateCategory.waiting_for_name)
@@ -886,12 +889,14 @@ async def created_category_fsm(message: Message, state: FSMContext, session: Asy
 
 @admin_router.callback_query(F.data == "cancel_create_subcat", CreateSubCategory.waiting_for_name)
 async def cancel_create_subcategory(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     await state.clear()
     await callback.message.edit_text("🚫 Создание подкатегории отменено")
-    await callback.answer()
+    
 
 @admin_router.callback_query(F.data.startswith("create_sub_cat"))
 async def create_sub_category(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    await callback.answer()
 
     cancel_kb = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -904,8 +909,9 @@ async def create_sub_category(callback: CallbackQuery, state: FSMContext, sessio
 
     await state.set_state(CreateSubCategory.waiting_for_name)
 
-    await callback.message.edit_text("💬 Введите название подкатегории: ", reply_markup=cancel_kb)
-    await callback.answer()
+    await callback.message.delete()
+    await callback.message.answer("💬 Введите название подкатегории: ", reply_markup=cancel_kb)
+    
 
 @admin_router.message(CreateSubCategory.waiting_for_name)
 async def created_sub_category_fsm(message: Message, state: FSMContext, session: AsyncSession):
