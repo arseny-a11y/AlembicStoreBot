@@ -3,6 +3,18 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 from aiogram.filters.callback_data import CallbackData
 from config.config import settings
+
+#соглашения на пользование ботом
+def approval_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+
+    kb.button(text="Политика конфиденциальности", url="https://telegra.ph/Politika-konfidencialnosti-servisa-ALEMBIC-STORE-10-21")
+    kb.button(text="Пользовательское соглашение",url="https://telegra.ph/Polzovatelskoe-soglashenie-servisa-ALEMBIC-STORE-10-21")
+    kb.button(text="✨ Посмотреть Отзывы", url=settings.CHANNEL_URL_REVIEW)
+    kb.adjust(1)
+
+    return kb.as_markup()
+
 def keyboard_support() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
 

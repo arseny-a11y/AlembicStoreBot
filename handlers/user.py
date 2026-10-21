@@ -5,7 +5,7 @@ from database.models import User, PromoCode,PromoUsage, Orders
 from database.queries import UserQueries,check_promocode
 from aiogram.types import FSInputFile #работа с изображениями
 from keyboards.reply import create_keyboard_menu
-from keyboards.inline import keyboard_support,keyboard_profile
+from keyboards.inline import keyboard_support,keyboard_profile, approval_kb
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery
@@ -57,7 +57,11 @@ async def information_shop(message: Message):
         "📅 <b>Работаем для вас с:</b> <code>04.09.2026</code>"
     )
 
-    await message.answer_photo(photo=photo,caption=text,parse_mode='HTML')
+    await message.answer_photo(
+        photo=photo,
+        caption=text,
+        reply_markup=approval_kb(),
+        parse_mode='HTML')
 
 
 #обработка запроса на контакты поддержки
@@ -224,4 +228,7 @@ async def history_purchases_handler(callback: CallbackQuery, session: AsyncSessi
 @user_router.callback_query(F.data == "sub_check")
 async def check_sub_channel(callback: CallbackQuery):
     # Сюда попадают только подписанные пользователи
-    await callback.message.answer("✅ Подписка подтверждена! Доступ открыт.")
+    await callback.message.answer(
+        "✅ Подписка подтверждена! Доступ открыт. Обязательно прочтите: ",
+        reply_markup=approval_kb()
+        )
