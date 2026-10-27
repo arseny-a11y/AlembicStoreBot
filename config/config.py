@@ -3,7 +3,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     DB_NAME: str = 'database/database.db'
     TOKEN: str
-    PROXY_URL: str
     ADMIN_IDS: list[int]
     CRYPTO_PAY_TOKEN: str
     OPENROUTER_API_KEY: str
