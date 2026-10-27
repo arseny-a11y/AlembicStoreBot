@@ -1,5 +1,4 @@
 from aiogram import Dispatcher, Bot
-from aiogram.client.session.aiohttp import AiohttpSession # работа с proxy
 import asyncio
 import logging
 from config.config import settings
@@ -15,8 +14,7 @@ async def main():
 
     logging.basicConfig(level=logging.INFO)
     
-    session = AiohttpSession(proxy=settings.PROXY_URL)
-    bot = Bot(settings.TOKEN,session=session)
+    bot = Bot(settings.TOKEN)
     dp = Dispatcher()
 
     

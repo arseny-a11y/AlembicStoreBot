@@ -25,6 +25,7 @@ test.py
 .idea/
 
 #Изображения и медиа файлы
-images/
 
 add_column.py
+
+.git/
