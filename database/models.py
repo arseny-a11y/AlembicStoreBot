@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import func, BigInteger, Numeric, ForeignKey, Text
+from sqlalchemy import func, BigInteger, Numeric, ForeignKey, Text, String
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase, relationship
 from typing import Annotated, Optional
 from enum import Enum
@@ -98,7 +98,7 @@ class Payments(Base):
 
     id: Mapped[all_id]
     user_id: Mapped[user_tg_id] = mapped_column(BigInteger, ForeignKey('users.id'))
-    invoice_id: Mapped[int] = mapped_column(unique=True)
+    invoice_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(10,2))
     payment_system: Mapped[str]
     status: Mapped[str] = mapped_column(default='pending')

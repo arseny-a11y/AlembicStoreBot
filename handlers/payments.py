@@ -1,9 +1,10 @@
 from config.config import settings
 from payments.crypto_pay import CryptoPay
-from keyboards.inline import BuyCD, top_up_balance_crypto_kb, confirm_buy_item, leave_review_kb, show_review_kb
+from payments.platega_pay import PlategaPay
+from keyboards.inline import BuyCD, top_up_balance_crypto_kb, confirm_buy_item, leave_review_kb, show_review_kb, payment_methods_kb, top_up_balance_platega
 from database.models import Items, Payments, User, Orders, Products
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, func
+from sqlalchemy import select, update, func, delete
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile, FSInputFile
 from aiogram.fsm.context import FSMContext
@@ -15,7 +16,9 @@ from service.review_verif import check_review_with_ai
 import html
 
 router_pay = Router()
+
 crypto = CryptoPay(settings.CRYPTO_PAY_TOKEN)
+platega = PlategaPay(settings.PLATEGA_MERCHANT_ID, settings.PLATEGA_API_KEY)
 
 
 """Код выдачи товара сразу после оплаты, без пополнение баланса (Прошлый вариант)"""
@@ -105,7 +108,7 @@ async def top_up_balance_message(message: Message, state: FSMContext):
     photo = FSInputFile("images/balance.jpg")
     await message.answer_photo(
         photo=photo,
-        caption="Введите сумму пополнения в рублях (минимум 50 ₽):",
+        caption="Введите сумму пополнения в рублях (минимум 20 ₽):",
         reply_markup=cancel_kb
     )
    
@@ -126,7 +129,7 @@ async def top_up_balance_callback(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.answer_photo(
         photo=photo,
-        caption="Введите сумму пополнения в рублях (минимум 50 ₽):",
+        caption="Введите сумму пополнения в рублях (минимум 20 ₽):",
         reply_markup=cancel_kb
     )
 
@@ -141,41 +144,45 @@ async def process_top_up(message: Message, state: FSMContext):
         return await message.answer("❌ Пожалуйста, введите целое положительное число")
 
     if int(amount) < MIN_AMOUNT:
-        return await message.answer("❌ Минимальная сумма поплнения - 50 ₽")
+        return await message.answer("❌ Минимальная сумма пополнения - 20 ₽")
     
     if int(amount) > MAX_AMOUNT:
         return await message.answer("❌ Максимальная сумма пополнения за одну транзакцию- 10.000 ₽")
     
     await state.clear()
 
-    invoice = await crypto.create_invoice(
-        amount=amount
-    )
+    await message.answer("Выбирите способ оплаты:", reply_markup=payment_methods_kb(amount))
+ 
 
-    await message.answer(f"Счёт на сумму **{amount} ₽** сформирован. После оплаты нажмите «Проверить оплату».",reply_markup=top_up_balance_crypto_kb(amount,invoice))
+#принимаем способ оплаты CryptoBot
+@router_pay.callback_query(F.data.startswith("crypto_bot_method"))
+async def payment_crypto_bot(callback: CallbackQuery):
+    amount = int(callback.data.split(":")[-1])
 
-#отмена счета
-@router_pay.callback_query(F.data.startswith("cancel_crypto_payments"))
-async def cancel_crypto_invoice_handler(callback: CallbackQuery):
-    invoice_id = int(callback.data.split(":")[-1])
+    invoice = await crypto.create_invoice(amount)
 
-    await callback.message.edit_text(f"🚫 Счет с идентификатором <code>#{invoice_id}</code> был отменен", parse_mode="HTML")
-    await callback.answer()
+    if not invoice or not invoice.get("bot_invoice_url"):
+        return await callback.answer(
+            "Не удалось создать счёт через CryptoBot. Попробуйте позже.", 
+            show_alert=True
+        )
+    
+    await callback.message.answer(f"Счёт на сумму **{amount} ₽** сформирован. После оплаты нажмите «Проверить оплату».",reply_markup=top_up_balance_crypto_kb(amount, invoice), parse_mode="Markdown")
 
-#проверка пополнения
+
+#проверка пополнения CryptoBot
 @router_pay.callback_query(F.data.startswith("check_pay_crypto"))
-async def check_payment(callback: CallbackQuery,session: AsyncSession):
+async def check_payment_crypto(callback: CallbackQuery, session: AsyncSession):
     invoice_id = int(callback.data.split(":")[-1])
-    invoice = await crypto.get_invoice(invoice_id)
+    check_invoice = await crypto.get_invoice(invoice_id)
 
-    if not invoice:
+    if not check_invoice:
         return await callback.answer("Не удалось найти счет. Попробуйте еще раз.",show_alert=True)
 
-    invoice_status = invoice.get("status")
+    invoice_status = check_invoice.get("status")
 
     if invoice_status == "active":
-        return await callback.answer("Оплата пока не поступила. Подождите пару секунд и проверьте снова.", show_alert=True)
-    
+        return await callback.answer("Оплата пока не поступила. Подождите пару секунд и попробуйте снова.", show_alert=True)
     if invoice_status != "paid":
         return await callback.answer(f"Счет не действителен (статус: {invoice_status}).", show_alert=True)
 
@@ -185,13 +192,13 @@ async def check_payment(callback: CallbackQuery,session: AsyncSession):
     if execute_check_stmt:
         return await callback.answer("Этот счет уже был успешно зачислен!", show_alert=True)
 
-    amount = Decimal(str(invoice.get("amount",0)))
+    amount = Decimal(str(check_invoice.get("amount",0)))
 
 
     new_payment = Payments(
         user_id=callback.from_user.id,
         invoice_id=invoice_id,
-        amount=invoice.get("amount"),
+        amount=str(amount),
         payment_system="CryptoBot",
         status=invoice_status,
     )
@@ -213,6 +220,91 @@ async def check_payment(callback: CallbackQuery,session: AsyncSession):
     await callback.message.answer(
         f"✅ Оплата прошла успешно!\n\n"
         f"Пополнено: **{amount} ₽**\n"
+        f"Ваш текущий баланс: **{new_balance} ₽**",
+        parse_mode="Markdown",
+    )
+    await callback.answer()
+
+#принимаем способ оплаты Platega
+@router_pay.callback_query(F.data.startswith("platega_method"))
+async def payment_crypto_bot(callback: CallbackQuery, session: AsyncSession):
+    amount = int(callback.data.split(":")[-1])
+    user_id = callback.from_user.id
+
+    invoice = await platega.create_invoice(user_id=user_id, amount=amount)
+    if not invoice or not invoice.get("payment_url"):
+        return await callback.answer("Ошибка при создании счёта. Попробуйте позже.", show_alert=True)
+
+    transaction_id = invoice.get("transactionId")
+
+    pending_payment = Payments(
+        user_id=user_id,
+        invoice_id=str(transaction_id),
+        amount=Decimal(str(amount)), #сумма без комиссии Platega
+        payment_system="Platega",
+        status="PENDING"
+    )
+
+    session.add(pending_payment)
+    await session.commit()
+
+    await callback.message.answer(f"Счёт на сумму **{amount} ₽** сформирован. После оплаты нажмите «Проверить оплату».", reply_markup=top_up_balance_platega(amount, invoice), parse_mode="Markdown")
+    await callback.answer()
+
+#проверка пополнения Platega
+@router_pay.callback_query(F.data.startswith("check_pay_platega"))
+async def check_payment_platega(callback: CallbackQuery,session: AsyncSession):
+
+    transaction_id = callback.data.split(":")[-1]
+    #ищем счет в БД
+    
+    check_stmt = select(Payments).where(Payments.invoice_id == str(transaction_id))
+    payment = (await session.execute(check_stmt)).scalar_one_or_none()
+
+    if not payment:
+        return await callback.answer("Не удалось найти счет в базе. Попробуйте снова.", show_alert=True)
+
+    if payment.user_id != callback.from_user.id:
+        return await callback.answer("Этот счет выставлен не вам!", show_alert=True)
+    
+    if payment.status == "CONFIRMED":
+        return await callback.answer("Этот счет уже был успешно зачислен!", show_alert=True)
+    
+    #проверяем статус в шлюзе
+    check_invoice = await platega.get_invoice(transaction_id)
+    if not check_invoice:
+        return await callback.answer("Ошибка связи с платёжной системой.", show_alert=True)
+
+    invoice_status = check_invoice.get("status")
+
+    if invoice_status == "PENDING":
+        return await callback.answer("Оплата пока не поступила. Подождите пару секунд и попробуйте снова.", show_alert=True)
+    
+    if invoice_status != "CONFIRMED":
+        await session.delete(payment)
+        await session.commit()
+        return await callback.answer(
+            f"Счет аннулирован платёжной системой (статус: {invoice_status}). Попробуйте создать новый.", 
+            show_alert=True
+        )
+
+    top_up_balance_user = (
+        update(User)
+        .where(User.tg_id == callback.from_user.id)
+        .values(balance=User.balance + payment.amount)
+        .returning(User.balance)
+    )
+
+    result = await session.execute(top_up_balance_user)
+    new_balance = result.scalar_one_or_none()
+
+    payment.status = "CONFIRMED"
+    await session.commit()
+
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer(
+        f"✅ Оплата прошла успешно!\n\n"
+        f"Пополнено: **{payment.amount} ₽**\n"
         f"Ваш текущий баланс: **{new_balance} ₽**",
         parse_mode="Markdown",
     )

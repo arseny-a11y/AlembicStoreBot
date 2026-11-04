@@ -10,9 +10,11 @@ from handlers.catalog import catalog_router
 from handlers.admin import admin_router
 from handlers.payments import router_pay
 
+
 async def main():
 
     logging.basicConfig(level=logging.INFO)
+
     
     bot = Bot(settings.TOKEN)
     dp = Dispatcher()

@@ -207,21 +207,31 @@ def items_pagination_keyboards(page: int, total_page: int, category_id: int, ite
 
 #     return kb.as_markup()
 
-# Клавиатура для поплнения баланса
-
+# Клавиатура для поплнения баланса через CryptoBot
 def top_up_balance_crypto_kb(amount: int, invoice: dict) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
 
     invoice_id = invoice.get('invoice_id')
-    kb.button(text=f"🪪 Оплатить {amount} ₽",url=invoice["bot_invoice_url"])
+    kb.button(text=f"🪪 Оплатить {amount} ₽",url=invoice.get("bot_invoice_url"))
     kb.button(text="Проверить оплату",callback_data=f"check_pay_crypto:{invoice_id}")
-    kb.button(text="Отменить оплату", callback_data=f"cancel_crypto_payments:{invoice_id}")
     kb.adjust(1)
 
     return kb.as_markup()
 
-#кнопка отмены для отправки рассылки всем пользователям
+#Клавиатура для поплнения баланса через Platega
+def top_up_balance_platega(amount: int, invoice: dict) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
 
+    transaction_id = invoice.get("transactionId")
+
+    kb.button(text=f"🪪 Оплатить {amount} ₽", url=invoice.get("payment_url"))
+    kb.button(text="Проверить оплату", callback_data=f"check_pay_platega:{transaction_id}")
+    kb.adjust(1)
+
+    return kb.as_markup()
+    
+
+#кнопка отмены для отправки рассылки всем пользователям
 def cancel_mailing_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="❌ Отменить рассылку",callback_data="cancel_mailing")
@@ -324,4 +334,14 @@ def show_review_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
 
     kb.button(text="⭐ Посмотреть отзывы", url=settings.CHANNEL_URL_REVIEW)
+    return kb.as_markup()
+
+#кнопки способов оплаты
+def payment_methods_kb(amount: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+
+    kb.button(text="CryptoBot", callback_data=f"crypto_bot_method:{amount}")
+    kb.button(text="СБП", callback_data=f"platega_method:{amount}")
+
+    kb.adjust(1)
     return kb.as_markup()

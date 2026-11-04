@@ -1,4 +1,3 @@
-import asyncio
 import json
 from config.config import settings
 from openai import AsyncOpenAI
@@ -64,10 +63,3 @@ async def check_review_with_ai(review_text: str) -> ResponseScheme:
   except Exception as e:
     return ResponseScheme(is_approved=False, reason=f"Ошибка: {e}")
 
-
-# async def main():
-#   test = await check_review_with_ai("кайф")
-#   print(test)
-
-# if __name__ == "__main__":
-#   asyncio.run(main())
