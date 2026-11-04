@@ -14,6 +14,7 @@ from handlers.payments import router_pay
 async def main():
 
     logging.basicConfig(level=logging.INFO)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
     
     bot = Bot(settings.TOKEN)
