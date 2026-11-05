@@ -135,7 +135,7 @@ async def top_up_balance_callback(callback: CallbackQuery, state: FSMContext):
 
 @router_pay.message(TopUpBalance.waiting_for_amount)
 async def process_top_up(message: Message, state: FSMContext):
-    MIN_AMOUNT = 50
+    MIN_AMOUNT = 20
     MAX_AMOUNT = 10_000
 
     amount = message.text

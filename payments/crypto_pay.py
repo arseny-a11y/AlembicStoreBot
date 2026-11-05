@@ -10,7 +10,7 @@ class CryptoPay:
     def __init__(self,token: str):
         self.headers = { "Crypto-Pay-API-Token" : token}
 
-    async def create_invoice(self, amount: float | int | str, fiat: str = 'RUB', accepted_assets: list[str] | None = None,) -> dict | None:
+    async def create_invoice(self, amount: float | int | str, fiat: str = 'RUB', accepted_assets: list[str] = ["USDT"],) -> dict | None:
 
         data = {
             "currency_type" : "fiat",

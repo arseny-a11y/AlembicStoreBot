@@ -340,8 +340,8 @@ def show_review_kb() -> InlineKeyboardMarkup:
 def payment_methods_kb(amount: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
 
-    kb.button(text="CryptoBot", callback_data=f"crypto_bot_method:{amount}")
-    kb.button(text="СБП", callback_data=f"platega_method:{amount}")
+    kb.button(text="CryptoBot ◦ USDT", callback_data=f"crypto_bot_method:{amount}")
+    kb.button(text="Platega ◦ СБП", callback_data=f"platega_method:{amount}")
 
     kb.adjust(1)
     return kb.as_markup()

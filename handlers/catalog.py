@@ -341,7 +341,7 @@ async def back_to_product(callback: CallbackQuery, callback_data: ItemsCD, sessi
     text = (
          f"<b>{item.title}</b>\n\n"
          f"{item.description}\n\n"
-         f"🪙Цена: {item.price}"
+         f"🪙 Цена: {item.price}"
     )
     try:
         photo_url = item.photo

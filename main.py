@@ -9,15 +9,15 @@ from handlers.user import user_router
 from handlers.catalog import catalog_router
 from handlers.admin import admin_router
 from handlers.payments import router_pay
-
+from aiogram.client.session.aiohttp import AiohttpSession
 
 async def main():
 
     logging.basicConfig(level=logging.INFO)
     logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
-
     
-    bot = Bot(settings.TOKEN)
+    session = AiohttpSession(settings.PROXY)
+    bot = Bot(settings.TOKEN, session=session)
     dp = Dispatcher()
 
     
