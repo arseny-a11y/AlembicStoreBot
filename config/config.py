@@ -19,7 +19,6 @@ class Settings(BaseSettings):
     PLATEGA_API_KEY: str
     BASE_URL_PLATEGA: str
 
-    PROXY: str
 
     @property
     def DATABASE_URL_aiosqlite(self) -> str:
