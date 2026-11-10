@@ -1,4 +1,4 @@
-import math
+import html
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
@@ -338,11 +338,18 @@ async def back_to_product(callback: CallbackQuery, callback_data: ItemsCD, sessi
 
     if not item:
         return await callback.answer("Товар купили!",show_alert=True)
+    
+    raw_desc = item.description or "Без описания"
+    formatted_description = raw_desc.replace("\\n", "\n")
+    safe_description = html.escape(formatted_description)
+    safe_title = html.escape(item.title)
+
     text = (
-         f"<b>{item.title}</b>\n\n"
-         f"{item.description}\n\n"
-         f"🪙 Цена: {item.price}"
+        f"<b>{safe_title}</b>\n\n"
+        f"<blockquote>{safe_description}</blockquote>\n\n"
+        f"🪙 Цена: {item.price}"
     )
+    
     try:
         photo_url = item.photo
         await callback.message.edit_text(text,reply_markup=item_card_keyboard(item_id, photo_url, item.category_id, is_admin=is_admin),parse_mode='HTML')
